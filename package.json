@@ -1,6 +1,7 @@
 {
   "name": "agrozap",
   "version": "0.1.0",
+  "author": "MUTANOxB <thiagopacifico11@gmail.com>",
   "private": true,
   "scripts": {
     "dev": "next dev",
