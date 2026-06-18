@@ -12,6 +12,7 @@ export function RecentActivities({ activities }: RecentActivitiesProps) {
       title="O que foi feito"
       subtitle="Anotações mais recentes da propriedade"
       icon="activity"
+      href="/registros"
     >
       <div className="divide-y divide-slate-100">
         {activities.map((activity) => (

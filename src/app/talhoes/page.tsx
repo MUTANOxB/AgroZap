@@ -1,18 +1,13 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import {
+  useAgroApp,
+  type Area,
+  type ProductionType,
+} from "@/context/AgroAppContext";
 
-type ProductionType = "Lavoura" | "Pasto" | "Horta" | "Pomar" | "Estufa" | "Outro";
-
-type ProductionLocation = {
-  id: number;
-  name: string;
-  type: ProductionType;
-  size: string;
-  note: string;
-};
-
-type FormData = Omit<ProductionLocation, "id">;
+type FormData = Omit<Area, "id">;
 
 const productionTypes: ProductionType[] = [
   "Lavoura",
@@ -21,30 +16,6 @@ const productionTypes: ProductionType[] = [
   "Estufa",
   "Pasto",
   "Outro",
-];
-
-const initialLocations: ProductionLocation[] = [
-  {
-    id: 1,
-    name: "Lavoura do milho",
-    type: "Lavoura",
-    size: "8 hectares",
-    note: "Roça do fundo, próxima ao galpão.",
-  },
-  {
-    id: 2,
-    name: "Pasto 2",
-    type: "Pasto",
-    size: "3 alqueires",
-    note: "Área com bebedouro e sombra.",
-  },
-  {
-    id: 3,
-    name: "Horta principal",
-    type: "Horta",
-    size: "450 m²",
-    note: "Local com irrigação.",
-  },
 ];
 
 const emptyForm: FormData = {
@@ -65,10 +36,10 @@ const typeColors: Record<ProductionType, string> = {
 
 export default function TalhoesPage() {
   /*
-   * useState guarda informações que podem mudar enquanto a pessoa usa a tela.
-   * Quando um estado muda, o React atualiza automaticamente o conteúdo exibido.
+   * As áreas vêm do AgroAppContext. Quando esta tela adiciona uma área, outras
+   * telas também recebem o novo dado sem precisar repetir o cadastro.
    */
-  const [locations, setLocations] = useState<ProductionLocation[]>(initialLocations);
+  const { areas, adicionarArea } = useAgroApp();
   const [formData, setFormData] = useState<FormData>(emptyForm);
 
   /*
@@ -89,8 +60,7 @@ export default function TalhoesPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const newLocation: ProductionLocation = {
-      id: Date.now(),
+    const newLocation: FormData = {
       name: formData.name.trim(),
       type: formData.type,
       size: formData.size.trim(),
@@ -98,10 +68,10 @@ export default function TalhoesPage() {
     };
 
     /*
-     * A lista é atualizada criando um novo array com os locais anteriores e o
-     * novo cadastro. Essa mudança de estado faz o novo card aparecer na hora.
+     * A lista global é atualizada pelo contexto. Além de aparecer aqui, a nova
+     * área passa a ser uma opção no formulário de Anotações.
      */
-    setLocations((currentLocations) => [...currentLocations, newLocation]);
+    adicionarArea(newLocation);
     setFormData(emptyForm);
   }
 
@@ -193,12 +163,12 @@ export default function TalhoesPage() {
             </p>
           </div>
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">
-            {locations.length} {locations.length === 1 ? "local" : "locais"}
+            {areas.length} {areas.length === 1 ? "local" : "locais"}
           </span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {locations.map((location) => (
+          {areas.map((location) => (
             <article
               key={location.id}
               className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)]"

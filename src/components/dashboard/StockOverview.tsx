@@ -12,6 +12,7 @@ export function StockOverview({ items }: StockOverviewProps) {
       title="Como está o estoque"
       subtitle="Quantidade dos principais produtos e materiais"
       icon="package"
+      href="/estoque"
     >
       <div className="space-y-5 p-5">
         {items.map((item) => (

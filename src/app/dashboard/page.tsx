@@ -1,3 +1,5 @@
+"use client";
+
 import { DashboardIcon } from "@/components/dashboard/DashboardIcon";
 import { RecentActivities } from "@/components/dashboard/RecentActivities";
 import { StockOverview } from "@/components/dashboard/StockOverview";
@@ -7,14 +9,33 @@ import { WeatherCard } from "@/components/dashboard/WeatherCard";
 import {
   recentActivities,
   stockItems,
-  summaryMetrics,
   upcomingTasks,
   weatherMock,
+  type SummaryMetric,
 } from "@/data/dashboardMock";
+import { useAgroApp } from "@/context/AgroAppContext";
 
 // A página apenas organiza as seções. Cada bloco visual e seus dados ficam
 // separados para facilitar manutenção, testes e estudo do projeto.
 export default function DashboardPage() {
+  const { areas, anotacoes, produtos } = useAgroApp();
+  const lowStockCount = produtos.filter(
+    (product) =>
+      product.minimumStock !== null &&
+      product.quantity <= product.minimumStock,
+  ).length;
+
+  /*
+   * Os números do Início agora vêm do mesmo contexto usado nas outras telas.
+   * Qualquer novo cadastro ou movimentação de estoque atualiza estes cards.
+   */
+  const summaryMetrics: Array<SummaryMetric & { href: string }> = [
+    { label: "Áreas cadastradas", value: String(areas.length), detail: "Locais acompanhados na propriedade", icon: "area", tone: "bg-emerald-100 text-emerald-700", href: "/talhoes" },
+    { label: "Anotações", value: String(anotacoes.length), detail: "Registros salvos no histórico", icon: "activity", tone: "bg-sky-100 text-sky-700", href: "/registros" },
+    { label: "Produtos no estoque", value: String(produtos.length), detail: "Produtos e materiais cadastrados", icon: "package", tone: "bg-amber-100 text-amber-700", href: "/estoque" },
+    { label: "Estoque baixo", value: String(lowStockCount), detail: "Produtos que pedem atenção", icon: "alert", tone: "bg-rose-100 text-rose-700", href: "/estoque" },
+  ];
+
   return (
     <div className="mx-auto max-w-[1500px]">
       <header className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
@@ -37,8 +58,9 @@ export default function DashboardPage() {
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {/* Os cards do Início funcionam como atalhos para as páginas correspondentes. */}
         {summaryMetrics.map((metric) => (
-          <SummaryCard key={metric.label} metric={metric} />
+          <SummaryCard key={metric.label} metric={metric} href={metric.href} />
         ))}
       </section>
 
