@@ -16,6 +16,12 @@ type StockForm = {
   minimumStock: string;
   storageLocation: string;
   note: string;
+  supplier: string;
+  unitValue: string;
+  expirationDate: string;
+  batchNumber: string;
+  purchaseDate: string;
+  technicalNote: string;
 };
 
 const categories: ProductCategory[] = [
@@ -48,6 +54,12 @@ const emptyForm: StockForm = {
   minimumStock: "",
   storageLocation: "",
   note: "",
+  supplier: "",
+  unitValue: "",
+  expirationDate: "",
+  batchNumber: "",
+  purchaseDate: "",
+  technicalNote: "",
 };
 
 const categoryColors: Record<ProductCategory, string> = {
@@ -79,7 +91,7 @@ function SummaryCard({
   tone: string;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
+    <article className="ag-card ag-card-interactive p-5">
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-slate-500">{label}</p>
         <span className={`rounded-xl p-2.5 ${tone}`}>{icon}</span>
@@ -96,7 +108,7 @@ export default function EstoquePage() {
    * Os produtos vêm do AgroAppContext. Isso permite que uma anotação de compra
    * ou uso atualize a mesma lista mostrada nesta tela.
    */
-  const { produtos, adicionarProduto } = useAgroApp();
+  const { produtos, adicionarProduto, isModoCompleto } = useAgroApp();
 
   /*
    * O estado do formulário guarda temporariamente os valores digitados antes
@@ -123,13 +135,20 @@ export default function EstoquePage() {
 
     const newProduct: Omit<StockProduct, "id"> = {
       name: formData.name.trim(),
-      category: formData.category,
+      category: isModoCompleto ? formData.category : "Outro",
       quantity: Number(formData.quantity),
       unit: formData.unit,
-      minimumStock:
-        formData.minimumStock === "" ? null : Number(formData.minimumStock),
-      storageLocation: formData.storageLocation.trim(),
-      note: formData.note.trim(),
+      minimumStock: isModoCompleto && formData.minimumStock !== ""
+        ? Number(formData.minimumStock)
+        : null,
+      storageLocation: isModoCompleto ? formData.storageLocation.trim() : "",
+      note: isModoCompleto ? formData.note.trim() : "",
+      supplier: isModoCompleto ? formData.supplier.trim() : "",
+      unitValue: isModoCompleto ? formData.unitValue.trim() : "",
+      expirationDate: isModoCompleto ? formData.expirationDate : "",
+      batchNumber: isModoCompleto ? formData.batchNumber.trim() : "",
+      purchaseDate: isModoCompleto ? formData.purchaseDate : "",
+      technicalNote: isModoCompleto ? formData.technicalNote.trim() : "",
     };
 
     adicionarProduto(newProduct);
@@ -161,7 +180,7 @@ export default function EstoquePage() {
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
           Controle da propriedade
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
           Estoque
         </h1>
         <p className="mt-1 max-w-3xl text-slate-500">
@@ -169,7 +188,7 @@ export default function EstoquePage() {
         </p>
       </header>
 
-      <section className="mb-7 grid gap-4 sm:grid-cols-3">
+      <section className="mb-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <SummaryCard
           label="Produtos cadastrados"
           value={produtos.length}
@@ -204,8 +223,8 @@ export default function EstoquePage() {
         />
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
-        <div className="border-b border-slate-100 px-6 py-5">
+      <section className="ag-form-section">
+        <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">
             Cadastrar novo produto
           </h2>
@@ -214,7 +233,7 @@ export default function EstoquePage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="grid gap-5 p-6 md:grid-cols-2">
+        <form onSubmit={handleSubmit} className="grid gap-5 p-4 sm:p-6 md:grid-cols-2">
           <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
               Nome do produto
@@ -226,25 +245,6 @@ export default function EstoquePage() {
               placeholder="Ex: Adubo NPK, Semente de soja, Óleo diesel, Fungicida"
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
             />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Categoria
-            </span>
-            <select
-              value={formData.category}
-              onChange={(event) =>
-                updateField("category", event.target.value as ProductCategory)
-              }
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            >
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category}
-                </option>
-              ))}
-            </select>
           </label>
 
           <label className="block">
@@ -282,57 +282,131 @@ export default function EstoquePage() {
             </select>
           </label>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Estoque mínimo{" "}
-              <span className="font-normal text-slate-400">(opcional)</span>
-            </span>
-            <input
-              min="0"
-              step="any"
-              type="number"
-              value={formData.minimumStock}
-              onChange={(event) =>
-                updateField("minimumStock", event.target.value)
-              }
-              placeholder="Ex: 50"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            />
-          </label>
+          {/* O modo simples termina após nome, quantidade e unidade. O bloco
+              completo concentra os campos administrativos e técnicos. */}
+          {isModoCompleto && (
+            <fieldset className="ag-detail-group grid gap-5 p-4 md:col-span-2 md:grid-cols-2">
+              <legend className="px-2 text-sm font-bold text-emerald-900">
+                Informações completas
+              </legend>
+              <p className="text-sm text-emerald-800 md:col-span-2">
+                Campos opcionais para acompanhar compra, validade e reposição.
+              </p>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Local de armazenamento{" "}
-              <span className="font-normal text-slate-400">(opcional)</span>
-            </span>
-            <input
-              value={formData.storageLocation}
-              onChange={(event) =>
-                updateField("storageLocation", event.target.value)
-              }
-              placeholder="Ex: Barracão principal, galpão de máquinas, depósito"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            />
-          </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Categoria</span>
+                <select
+                  value={formData.category}
+                  onChange={(event) => updateField("category", event.target.value as ProductCategory)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                >
+                  {categories.map((category) => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              </label>
 
-          <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Observação{" "}
-              <span className="font-normal text-slate-400">(opcional)</span>
-            </span>
-            <textarea
-              rows={3}
-              value={formData.note}
-              onChange={(event) => updateField("note", event.target.value)}
-              placeholder="Ex: Produto comprado para a safra 2025/26"
-              className="w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            />
-          </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Local de armazenamento</span>
+                <input
+                  value={formData.storageLocation}
+                  onChange={(event) => updateField("storageLocation", event.target.value)}
+                  placeholder="Ex: Barracão principal, depósito"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Observação</span>
+                <textarea
+                  rows={3}
+                  value={formData.note}
+                  onChange={(event) => updateField("note", event.target.value)}
+                  placeholder="Ex: Produto comprado para a safra 2025/26"
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Estoque mínimo</span>
+                <input
+                  min="0"
+                  step="any"
+                  type="number"
+                  value={formData.minimumStock}
+                  onChange={(event) => updateField("minimumStock", event.target.value)}
+                  placeholder="Ex: 50"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Fornecedor</span>
+                <input
+                  value={formData.supplier}
+                  onChange={(event) => updateField("supplier", event.target.value)}
+                  placeholder="Ex: Cooperativa local"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Valor unitário</span>
+                <input
+                  value={formData.unitValue}
+                  onChange={(event) => updateField("unitValue", event.target.value)}
+                  placeholder="Ex: R$ 85,00"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Validade</span>
+                <input
+                  type="date"
+                  value={formData.expirationDate}
+                  onChange={(event) => updateField("expirationDate", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Número do lote</span>
+                <input
+                  value={formData.batchNumber}
+                  onChange={(event) => updateField("batchNumber", event.target.value)}
+                  placeholder="Ex: LT-2026-041"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Data de compra</span>
+                <input
+                  type="date"
+                  value={formData.purchaseDate}
+                  onChange={(event) => updateField("purchaseDate", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Observação técnica</span>
+                <textarea
+                  rows={3}
+                  value={formData.technicalNote}
+                  onChange={(event) => updateField("technicalNote", event.target.value)}
+                  placeholder="Detalhes de uso, conservação ou reposição"
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+            </fieldset>
+          )}
 
           <div className="flex justify-end md:col-span-2">
             <button
               type="submit"
-              className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
+              className="ag-button-primary w-full px-5 py-3 text-sm font-bold sm:w-auto"
             >
               Cadastrar produto
             </button>
@@ -341,7 +415,7 @@ export default function EstoquePage() {
       </section>
 
       <section className="mt-7">
-        <div className="mb-4 flex items-end justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">
               Produtos cadastrados
@@ -359,15 +433,15 @@ export default function EstoquePage() {
          * A lista percorre o estado products e transforma cada produto em um
          * card. Informações opcionais só aparecem quando foram preenchidas.
          */}
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {produtos.map((product) => {
             const lowStock = hasLowStock(product);
 
             return (
               <article
                 key={product.id}
-                className={`rounded-2xl border bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ${
-                  lowStock ? "border-rose-200" : "border-slate-200/80"
+                className={`ag-card ag-card-interactive p-5 ${
+                  lowStock ? "!border-rose-200" : ""
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">

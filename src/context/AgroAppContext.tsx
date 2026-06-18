@@ -22,6 +22,11 @@ export type Area = {
   type: ProductionType;
   size: string;
   note: string;
+  currentCrop?: string;
+  harvest?: string;
+  soilType?: string;
+  irrigation?: string;
+  estimatedProductivity?: string;
 };
 
 export type AnnotationType =
@@ -47,6 +52,12 @@ export type Annotation = {
   productId: number | null;
   productName: string;
   stockQuantity: number | null;
+  appliedDose?: string;
+  doseUnit?: string;
+  harvest?: string;
+  supplier?: string;
+  productBatch?: string;
+  technicalNote?: string;
 };
 
 export type ProductCategory =
@@ -78,13 +89,24 @@ export type StockProduct = {
   minimumStock: number | null;
   storageLocation: string;
   note: string;
+  supplier?: string;
+  unitValue?: string;
+  expirationDate?: string;
+  batchNumber?: string;
+  purchaseDate?: string;
+  technicalNote?: string;
 };
+
+export type UsageMode = "simples" | "completo";
 
 type AgroAppContextValue = {
   areas: Area[];
   anotacoes: Annotation[];
   produtos: StockProduct[];
   isLoaded: boolean;
+  modoUso: UsageMode;
+  setModoUso: (mode: UsageMode) => void;
+  isModoCompleto: boolean;
   adicionarArea: (area: Omit<Area, "id">) => void;
   adicionarAnotacao: (anotacao: Omit<Annotation, "id">) => void;
   adicionarProduto: (produto: Omit<StockProduct, "id">) => void;
@@ -92,6 +114,7 @@ type AgroAppContextValue = {
 };
 
 const STORAGE_KEY = "agrozap-mvp-data";
+const SETTINGS_STORAGE_KEY = "agrozap-settings";
 
 const initialAreas: Area[] = [
   { id: 1, name: "Lavoura do milho", type: "Lavoura", size: "8 hectares", note: "Roça do fundo, próxima ao galpão." },
@@ -160,6 +183,7 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
   const [anotacoes, setAnotacoes] = useState<Annotation[]>(initialAnnotations);
   const [produtos, setProdutos] = useState<StockProduct[]>(initialProducts);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [modoUso, setModoUso] = useState<UsageMode>("simples");
 
   /*
    * O localStorage só existe no navegador. Por isso, os dados são carregados
@@ -181,6 +205,21 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
           if (Array.isArray(parsedData.areas)) setAreas(parsedData.areas);
           if (Array.isArray(parsedData.anotacoes)) setAnotacoes(parsedData.anotacoes);
           if (Array.isArray(parsedData.produtos)) setProdutos(parsedData.produtos);
+        }
+
+        const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+        if (savedSettings) {
+          const parsedSettings = JSON.parse(savedSettings) as {
+            modoUso?: UsageMode;
+          };
+
+          if (
+            parsedSettings.modoUso === "simples" ||
+            parsedSettings.modoUso === "completo"
+          ) {
+            setModoUso(parsedSettings.modoUso);
+          }
         }
       } catch {
         // Se os dados salvos estiverem inválidos, o aplicativo usa os exemplos iniciais.
@@ -204,6 +243,20 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
       JSON.stringify({ areas, anotacoes, produtos }),
     );
   }, [areas, anotacoes, produtos, isLoaded]);
+
+  /*
+   * O modo de uso também fica salvo no localStorage. Ele começa como simples
+   * no servidor e só lê a preferência depois que o navegador monta a página,
+   * evitando diferenças de HTML e erros de hydration no Next.js.
+   */
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ modoUso }),
+    );
+  }, [isLoaded, modoUso]);
 
   function adicionarArea(area: Omit<Area, "id">) {
     setAreas((currentAreas) => [...currentAreas, { ...area, id: Date.now() }]);
@@ -244,6 +297,9 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
         anotacoes,
         produtos,
         isLoaded,
+        modoUso,
+        setModoUso,
+        isModoCompleto: modoUso === "completo",
         adicionarArea,
         adicionarAnotacao,
         adicionarProduto,

@@ -16,13 +16,13 @@ export function RecentActivities({ activities }: RecentActivitiesProps) {
     >
       <div className="divide-y divide-slate-100">
         {activities.map((activity) => (
-          <div key={activity.title} className="flex items-center gap-4 px-5 py-4">
+          <div key={activity.title} className="flex items-center gap-3 px-4 py-4 sm:gap-4 sm:px-5">
             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-slate-50 ${activity.color}`} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-800">{activity.title}</p>
               <p className="truncate text-xs text-slate-400">{activity.meta}</p>
             </div>
-            <time className="shrink-0 text-right text-xs font-medium text-slate-400">
+            <time className="max-w-20 shrink-0 text-right text-xs font-medium text-slate-400">
               {activity.time}
             </time>
           </div>

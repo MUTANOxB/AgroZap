@@ -36,6 +36,12 @@ const emptyForm: AnnotationForm = {
   responsible: "",
   productName: "",
   stockQuantity: "",
+  appliedDose: "",
+  doseUnit: "",
+  harvest: "",
+  supplier: "",
+  productBatch: "",
+  technicalNote: "",
 };
 
 const stockEntryTypes: AnnotationType[] = ["Entrada no estoque", "Compra"];
@@ -73,6 +79,7 @@ export default function RegistrosPage() {
     produtos,
     adicionarAnotacao,
     atualizarQuantidadeProduto,
+    isModoCompleto,
   } = useAgroApp();
 
   /*
@@ -106,15 +113,20 @@ export default function RegistrosPage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const selectedProduct = produtos.find(
-      (product) =>
-        product.name.toLocaleLowerCase("pt-BR") ===
-        formData.productName.trim().toLocaleLowerCase("pt-BR"),
-    );
+    const selectedProduct = isModoCompleto
+      ? produtos.find(
+          (product) =>
+            product.name.toLocaleLowerCase("pt-BR") ===
+            formData.productName.trim().toLocaleLowerCase("pt-BR"),
+        )
+      : undefined;
     const stockQuantity =
-      formData.stockQuantity === "" ? null : Number(formData.stockQuantity);
+      isModoCompleto && formData.stockQuantity !== ""
+        ? Number(formData.stockQuantity)
+        : null;
 
     if (
+      isModoCompleto &&
       changesStock &&
       selectedProduct &&
       stockQuantity !== null &&
@@ -128,16 +140,22 @@ export default function RegistrosPage() {
     }
 
     const newAnnotation: Omit<Annotation, "id"> = {
-      type: formData.type,
+      type: isModoCompleto ? formData.type : "Observação",
       location: formData.location.trim(),
       date: formData.date,
       description: formData.description.trim(),
-      quantity: formData.quantity.trim(),
-      value: formData.value.trim(),
-      responsible: formData.responsible.trim(),
+      quantity: isModoCompleto ? formData.quantity.trim() : "",
+      value: isModoCompleto ? formData.value.trim() : "",
+      responsible: isModoCompleto ? formData.responsible.trim() : "",
       productId: selectedProduct?.id ?? null,
-      productName: formData.productName.trim(),
+      productName: isModoCompleto ? formData.productName.trim() : "",
       stockQuantity,
+      appliedDose: isModoCompleto ? formData.appliedDose?.trim() : "",
+      doseUnit: isModoCompleto ? formData.doseUnit?.trim() : "",
+      harvest: isModoCompleto ? formData.harvest?.trim() : "",
+      supplier: isModoCompleto ? formData.supplier?.trim() : "",
+      productBatch: isModoCompleto ? formData.productBatch?.trim() : "",
+      technicalNote: isModoCompleto ? formData.technicalNote?.trim() : "",
     };
 
     adicionarAnotacao(newAnnotation);
@@ -151,7 +169,7 @@ export default function RegistrosPage() {
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
           Rotina da propriedade
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
           Anotações
         </h1>
         <p className="mt-1 max-w-3xl text-slate-500">
@@ -159,17 +177,69 @@ export default function RegistrosPage() {
         </p>
       </header>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
-        <div className="border-b border-slate-100 px-6 py-5">
+      <section className="ag-form-section">
+        <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">
-            Registrar nova anotação
+            {isModoCompleto ? "Registrar nova anotação" : "Anotação rápida"}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Preencha as informações principais do que aconteceu na propriedade.
+            {isModoCompleto
+              ? "Preencha as informações principais do que aconteceu na propriedade."
+              : "Conte o que aconteceu e salve em poucos passos."}
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="grid gap-5 p-6 md:grid-cols-2">
+        <form onSubmit={handleSubmit} className="grid gap-5 p-4 sm:p-6 md:grid-cols-2">
+          {!isModoCompleto ? (
+            <>
+              {/* O modo simples pede somente uma descrição, a data e um local
+                  opcional. Isso reduz o tempo e a complexidade do registro. */}
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  O que aconteceu?
+                </span>
+                <textarea
+                  required
+                  autoFocus
+                  rows={5}
+                  value={formData.description}
+                  onChange={(event) => updateField("description", event.target.value)}
+                  placeholder="Ex: Apliquei 20 litros de herbicida na lavoura do milho"
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Data</span>
+                <input
+                  required
+                  type="date"
+                  value={formData.date}
+                  onChange={(event) => updateField("date", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  Onde foi feito? <span className="font-normal text-slate-400">(opcional)</span>
+                </span>
+                <input
+                  list="registered-areas-simple"
+                  value={formData.location}
+                  onChange={(event) => updateField("location", event.target.value)}
+                  placeholder="Ex: Lavoura do milho"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+                />
+                <datalist id="registered-areas-simple">
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.name} />
+                  ))}
+                </datalist>
+              </label>
+            </>
+          ) : (
+            <>
           <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
               O que foi feito?
@@ -238,56 +308,6 @@ export default function RegistrosPage() {
             />
           </label>
 
-          {changesStock && (
-            <div className="grid gap-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 md:col-span-2 md:grid-cols-2">
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Produto do estoque{" "}
-                  <span className="font-normal text-slate-400">(opcional)</span>
-                </span>
-                <input
-                  list="registered-products"
-                  value={formData.productName}
-                  onChange={(event) =>
-                    updateField("productName", event.target.value)
-                  }
-                  placeholder="Selecione ou informe o produto"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-                />
-                <datalist id="registered-products">
-                  {produtos.map((product) => (
-                    <option key={product.id} value={product.name}>
-                      {formatStockOption(product.quantity, product.unit)}
-                    </option>
-                  ))}
-                </datalist>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Quantidade movimentada{" "}
-                  <span className="font-normal text-slate-400">(opcional)</span>
-                </span>
-                <input
-                  min="0"
-                  step="any"
-                  type="number"
-                  value={formData.stockQuantity}
-                  onChange={(event) =>
-                    updateField("stockQuantity", event.target.value)
-                  }
-                  placeholder="Ex: 20"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
-                />
-              </label>
-              <p className="text-xs leading-5 text-emerald-800 md:col-span-2">
-                {stockEntryTypes.includes(formData.type)
-                  ? "Se o produto já estiver cadastrado, esta quantidade será acrescentada ao estoque."
-                  : "Se o produto já estiver cadastrado, esta quantidade será descontada do estoque."}
-              </p>
-            </div>
-          )}
-
           <label className="block md:col-span-2">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
               Descrição
@@ -326,19 +346,145 @@ export default function RegistrosPage() {
             />
           </label>
 
+          {/* No modo simples aparecem apenas os campos principais. Esta seção
+              só entra no HTML quando o usuário escolhe o modo completo. */}
+          {isModoCompleto && (
+            <fieldset className="ag-detail-group grid gap-5 p-4 md:col-span-2 md:grid-cols-2">
+              <legend className="px-2 text-sm font-bold text-emerald-900">
+                Detalhes adicionais
+              </legend>
+              <p className="text-sm text-emerald-800 md:col-span-2">
+                Informações opcionais para um registro técnico mais detalhado.
+              </p>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  Produto utilizado{" "}
+                  <span className="font-normal text-slate-400">(opcional)</span>
+                </span>
+                <input
+                  list="registered-products"
+                  value={formData.productName}
+                  onChange={(event) =>
+                    updateField("productName", event.target.value)
+                  }
+                  placeholder="Selecione ou informe o produto"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+                <datalist id="registered-products">
+                  {produtos.map((product) => (
+                    <option key={product.id} value={product.name}>
+                      {formatStockOption(product.quantity, product.unit)}
+                    </option>
+                  ))}
+                </datalist>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">
+                  Dose aplicada
+                </span>
+                <input
+                  value={formData.appliedDose}
+                  onChange={(event) => updateField("appliedDose", event.target.value)}
+                  placeholder="Ex: 2,5"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Unidade da dose</span>
+                <input
+                  value={formData.doseUnit}
+                  onChange={(event) => updateField("doseUnit", event.target.value)}
+                  placeholder="Ex: L/ha, kg/ha, ml"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Safra</span>
+                <input
+                  value={formData.harvest}
+                  onChange={(event) => updateField("harvest", event.target.value)}
+                  placeholder="Ex: 2025/26"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Fornecedor</span>
+                <input
+                  value={formData.supplier}
+                  onChange={(event) => updateField("supplier", event.target.value)}
+                  placeholder="Ex: Cooperativa local"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Lote do produto</span>
+                <input
+                  value={formData.productBatch}
+                  onChange={(event) => updateField("productBatch", event.target.value)}
+                  placeholder="Ex: LT-2026-041"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              {changesStock && (
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">
+                    Quantidade movimentada
+                  </span>
+                  <input
+                    min="0"
+                    step="any"
+                    type="number"
+                    value={formData.stockQuantity}
+                    onChange={(event) => updateField("stockQuantity", event.target.value)}
+                    placeholder="Ex: 20"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                  />
+                </label>
+              )}
+
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Observação técnica</span>
+                <textarea
+                  rows={3}
+                  value={formData.technicalNote}
+                  onChange={(event) => updateField("technicalNote", event.target.value)}
+                  placeholder="Detalhes técnicos importantes para consultas futuras"
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              {changesStock && (
+                <p className="text-xs leading-5 text-emerald-800 md:col-span-2">
+                  {stockEntryTypes.includes(formData.type)
+                    ? "Se o produto já estiver cadastrado, a quantidade movimentada será acrescentada ao estoque."
+                    : "Se o produto já estiver cadastrado, a quantidade movimentada será descontada do estoque."}
+                </p>
+              )}
+            </fieldset>
+          )}
+            </>
+          )}
+
           <div className="flex justify-end md:col-span-2">
             <button
               type="submit"
-              className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
+              className="ag-button-primary w-full px-5 py-3 text-sm font-bold sm:w-auto"
             >
-              Salvar anotação
+              {isModoCompleto ? "Salvar anotação" : "Salvar anotação rápida"}
             </button>
           </div>
         </form>
       </section>
 
       <section className="mt-7">
-        <div className="mb-4 flex items-end justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">
               Histórico da propriedade
@@ -361,7 +507,7 @@ export default function RegistrosPage() {
           {annotations.map((annotation) => (
             <article
               key={annotation.id}
-              className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)]"
+              className="ag-card ag-card-interactive p-5"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <span className={`rounded-full px-3 py-1 text-xs font-bold ${typeColors[annotation.type]}`}>

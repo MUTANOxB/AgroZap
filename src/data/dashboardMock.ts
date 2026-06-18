@@ -26,19 +26,6 @@ export type RecentActivity = {
   color: string;
 };
 
-export type WeatherInfo = {
-  location: string;
-  temperature: string;
-  condition: string;
-  feelsLike: string;
-  details: Array<{
-    icon: DashboardIconName;
-    label: string;
-    value: string;
-  }>;
-  forecast: string;
-};
-
 export type StockItem = {
   name: string;
   amount: string;
@@ -69,19 +56,6 @@ export const recentActivities: RecentActivity[] = [
   { title: "Vistoria de pragas", meta: "Roça do fundo · Milho", time: "16 jun, 10:20", color: "bg-amber-500" },
   { title: "Revisão do trator", meta: "John Deere 6110J", time: "15 jun, 14:00", color: "bg-violet-500" },
 ];
-
-export const weatherMock: WeatherInfo = {
-  location: "Rio Verde, GO",
-  temperature: "27°",
-  condition: "Parcialmente nublado",
-  feelsLike: "Sensação de 29°C",
-  details: [
-    { icon: "droplet", label: "Umidade", value: "68%" },
-    { icon: "wind", label: "Vento", value: "14 km/h" },
-    { icon: "rain", label: "Chuva", value: "35%" },
-  ],
-  forecast: "Previsão de chuva leve amanhã à tarde.",
-};
 
 export const stockItems: StockItem[] = [
   { name: "Semente de soja", amount: "3.450 kg", level: 78, color: "bg-emerald-500" },

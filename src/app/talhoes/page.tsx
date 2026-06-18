@@ -23,6 +23,11 @@ const emptyForm: FormData = {
   type: "Lavoura",
   size: "",
   note: "",
+  currentCrop: "",
+  harvest: "",
+  soilType: "",
+  irrigation: "",
+  estimatedProductivity: "",
 };
 
 const typeColors: Record<ProductionType, string> = {
@@ -39,7 +44,7 @@ export default function TalhoesPage() {
    * As áreas vêm do AgroAppContext. Quando esta tela adiciona uma área, outras
    * telas também recebem o novo dado sem precisar repetir o cadastro.
    */
-  const { areas, adicionarArea } = useAgroApp();
+  const { areas, adicionarArea, isModoCompleto } = useAgroApp();
   const [formData, setFormData] = useState<FormData>(emptyForm);
 
   /*
@@ -64,7 +69,14 @@ export default function TalhoesPage() {
       name: formData.name.trim(),
       type: formData.type,
       size: formData.size.trim(),
-      note: formData.note.trim(),
+      note: isModoCompleto ? formData.note.trim() : "",
+      currentCrop: isModoCompleto ? formData.currentCrop?.trim() : "",
+      harvest: isModoCompleto ? formData.harvest?.trim() : "",
+      soilType: isModoCompleto ? formData.soilType?.trim() : "",
+      irrigation: isModoCompleto ? formData.irrigation?.trim() : "",
+      estimatedProductivity: isModoCompleto
+        ? formData.estimatedProductivity?.trim()
+        : "",
     };
 
     /*
@@ -83,21 +95,23 @@ export default function TalhoesPage() {
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
           Organização da propriedade
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-950">Área cultivada</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Área cultivada</h1>
         <p className="mt-1 max-w-3xl text-slate-500">
           Cadastre e acompanhe as áreas usadas para plantio, manejo e colheita.
         </p>
       </header>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)]">
-        <div className="border-b border-slate-100 px-6 py-5">
+      <section className="ag-form-section">
+        <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">Cadastrar nova área</h2>
           <p className="mt-1 text-sm text-slate-500">
             Use um nome simples que você e sua equipe reconheçam com facilidade.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="grid gap-5 p-6 md:grid-cols-2">
+        {/* O formulário começa em uma coluna no celular. A partir de md, o
+            Tailwind distribui os campos em duas colunas para aproveitar a tela. */}
+        <form onSubmit={handleSubmit} className="grid gap-5 p-4 sm:p-6 md:grid-cols-2">
           <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">Nome da área</span>
             <input
@@ -133,20 +147,81 @@ export default function TalhoesPage() {
             />
           </label>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">Observação</span>
-            <input
-              value={formData.note}
-              onChange={(event) => updateField("note", event.target.value)}
-              placeholder="Ex: Área perto do rio, roça do fundo, local com irrigação"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            />
-          </label>
+          {isModoCompleto && (
+            <fieldset className="ag-detail-group grid gap-5 p-4 md:col-span-2 md:grid-cols-2">
+              <legend className="px-2 text-sm font-bold text-emerald-900">
+                Informações completas
+              </legend>
+              <p className="text-sm text-emerald-800 md:col-span-2">
+                Campos opcionais para acompanhar os detalhes técnicos da área.
+              </p>
+
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Observação</span>
+                <input
+                  value={formData.note}
+                  onChange={(event) => updateField("note", event.target.value)}
+                  placeholder="Ex: Área perto do rio, roça do fundo, local com irrigação"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Cultura atual</span>
+                <input
+                  value={formData.currentCrop}
+                  onChange={(event) => updateField("currentCrop", event.target.value)}
+                  placeholder="Ex: Milho, soja, café"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Safra</span>
+                <input
+                  value={formData.harvest}
+                  onChange={(event) => updateField("harvest", event.target.value)}
+                  placeholder="Ex: 2025/26"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Tipo de solo</span>
+                <input
+                  value={formData.soilType}
+                  onChange={(event) => updateField("soilType", event.target.value)}
+                  placeholder="Ex: Argiloso, arenoso"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Irrigação</span>
+                <input
+                  value={formData.irrigation}
+                  onChange={(event) => updateField("irrigation", event.target.value)}
+                  placeholder="Ex: Gotejamento, pivô, sem irrigação"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Produtividade estimada</span>
+                <input
+                  value={formData.estimatedProductivity}
+                  onChange={(event) => updateField("estimatedProductivity", event.target.value)}
+                  placeholder="Ex: 60 sacas por hectare"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                />
+              </label>
+            </fieldset>
+          )}
 
           <div className="flex justify-end md:col-span-2">
             <button
               type="submit"
-              className="rounded-xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
+              className="ag-button-primary w-full px-5 py-3 text-sm font-bold sm:w-auto"
             >
               Cadastrar área
             </button>
@@ -155,7 +230,7 @@ export default function TalhoesPage() {
       </section>
 
       <section className="mt-7">
-        <div className="mb-4 flex items-end justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Áreas cadastradas</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -171,10 +246,10 @@ export default function TalhoesPage() {
           {areas.map((location) => (
             <article
               key={location.id}
-              className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)]"
+              className="ag-card ag-card-interactive p-5"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-950 text-white">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-800 bg-emerald-950 text-white shadow-sm">
                   <svg
                     viewBox="0 0 24 24"
                     fill="none"

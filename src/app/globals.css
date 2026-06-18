@@ -1,8 +1,23 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f8f4;
-  --foreground: #17211a;
+  /* Cores extraídas da nova marca: campo, energia e um toque de terra. */
+  --ag-primary: #075b35;
+  --ag-primary-strong: #003f27;
+  --ag-accent: #58bd08;
+  --ag-accent-strong: #409b00;
+  --ag-secondary: #c89a5b;
+  --ag-background: #f6f7f1;
+  --ag-surface: rgba(255, 255, 252, 0.92);
+  --ag-surface-soft: #f8faf6;
+  --ag-text: #18231d;
+  --ag-text-muted: #66736b;
+  --ag-alert: #be4050;
+  --ag-border: rgba(15, 76, 48, 0.14);
+  --ag-shadow: 0 12px 32px rgba(34, 58, 45, 0.07);
+  --ag-shadow-hover: 0 18px 42px rgba(34, 58, 45, 0.11);
+  --background: var(--ag-background);
+  --foreground: var(--ag-text);
 }
 
 * {
@@ -11,7 +26,192 @@
 
 body {
   margin: 0;
+  min-width: 320px;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-manrope), "Segoe UI", Arial, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * O fundo combina cores muito suaves com curvas inspiradas em mapas
+ * topográficos. Os desenhos têm baixo contraste para não competir com o texto.
+ */
+.ag-app-background {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(190, 220, 198, 0.32), transparent 28rem),
+    radial-gradient(circle at 88% 92%, rgba(210, 219, 199, 0.28), transparent 32rem),
+    linear-gradient(145deg, #f8faf6 0%, #f3f6f1 48%, #f6f7f3 100%);
+}
+
+.ag-app-background::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.35;
+  background-image:
+    repeating-radial-gradient(
+      ellipse at 90% 15%,
+      transparent 0 34px,
+      rgba(35, 99, 70, 0.055) 35px 36px,
+      transparent 37px 64px
+    ),
+    repeating-radial-gradient(
+      ellipse at 8% 88%,
+      transparent 0 44px,
+      rgba(184, 135, 50, 0.04) 45px 46px,
+      transparent 47px 82px
+    );
+}
+
+/*
+ * Estas classes formam o pequeno design system do AgroZap. Elas padronizam
+ * superfícies, campos e ações sem esconder o papel de cada elemento.
+ */
+.ag-card {
+  border: 1px solid var(--ag-border);
+  border-radius: 1.15rem;
+  background: var(--ag-surface);
+  box-shadow: var(--ag-shadow);
+  backdrop-filter: blur(8px);
+}
+
+.ag-card-interactive {
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ag-card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: rgba(88, 189, 8, 0.28);
+  box-shadow: var(--ag-shadow-hover);
+}
+
+.ag-form-section {
+  overflow: hidden;
+  border: 1px solid var(--ag-border);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 252, 0.94);
+  box-shadow: var(--ag-shadow);
+}
+
+.ag-detail-group {
+  border: 1px solid rgba(88, 189, 8, 0.17);
+  border-radius: 1rem;
+  background:
+    linear-gradient(145deg, rgba(239, 248, 232, 0.9), rgba(250, 248, 242, 0.92));
+}
+
+.ag-button-primary {
+  min-height: 3rem;
+  border-radius: 0.85rem;
+  background: linear-gradient(135deg, var(--ag-primary) 0%, #0d7444 100%);
+  color: white;
+  box-shadow: 0 8px 18px rgba(7, 91, 53, 0.19);
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.ag-button-primary:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, var(--ag-primary-strong) 0%, #075c36 100%);
+  box-shadow: 0 11px 24px rgba(23, 107, 75, 0.22);
+}
+
+.ag-button-primary:focus-visible {
+  outline: 3px solid rgba(88, 189, 8, 0.24);
+  outline-offset: 2px;
+}
+
+.ag-button-secondary {
+  border: 1px solid rgba(23, 107, 75, 0.1);
+  border-radius: 0.8rem;
+  background: rgba(238, 244, 237, 0.92);
+  color: var(--ag-primary-strong);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.ag-button-secondary:hover {
+  transform: translateY(-1px);
+  border-color: rgba(23, 107, 75, 0.2);
+  background: #e4f0e6;
+}
+
+/*
+ * Todos os campos compartilham conforto de toque e foco claro. As regras
+ * também garantem que nenhum controle cause rolagem horizontal no celular.
+ */
+input,
+select,
+textarea,
+button {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea {
+  min-height: 3rem;
+  border-color: rgba(61, 83, 70, 0.18) !important;
+  border-radius: 0.85rem !important;
+  background-color: rgba(249, 250, 247, 0.92) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: rgba(88, 189, 8, 0.42) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(67, 160, 0, 0.72) !important;
+  background-color: #fff !important;
+  box-shadow: 0 0 0 4px rgba(88, 189, 8, 0.12) !important;
+}
+
+textarea {
+  line-height: 1.6;
+}
+
+h1,
+h2,
+h3,
+strong {
+  letter-spacing: -0.025em;
+}
+
+label > span:first-child {
+  color: #425149;
+  letter-spacing: 0.005em;
+}
+
+::selection {
+  background: rgba(65, 151, 105, 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

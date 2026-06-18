@@ -11,10 +11,10 @@ type SummaryCardProps = {
 // Receber o conteúdo por props permite reutilizar o mesmo visual para todas as métricas.
 export function SummaryCard({ metric, href }: SummaryCardProps) {
   const card = (
-    <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-lg">
+    <article className="ag-card ag-card-interactive h-full p-5">
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-slate-500">{metric.label}</p>
-        <span className={`rounded-xl p-2.5 ${metric.tone}`}>
+        <span className={`rounded-xl border border-white/70 p-2.5 shadow-sm ${metric.tone}`}>
           <DashboardIcon name={metric.icon} />
         </span>
       </div>
@@ -30,7 +30,7 @@ export function SummaryCard({ metric, href }: SummaryCardProps) {
   return (
     <Link
       href={href}
-      className="block cursor-pointer rounded-2xl focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
+      className="block h-full cursor-pointer rounded-2xl focus:outline-none focus:ring-4 focus:ring-emerald-500/20"
     >
       {card}
     </Link>
