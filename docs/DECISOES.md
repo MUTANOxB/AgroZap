@@ -335,17 +335,19 @@ continuam para a próxima etapa.
 
 ## 26. Nova operação e reversão histórica usam regras diferentes
 
-**Decisão:** uma nova operação exige produto e área ativos; uma reversão pode
-usar o produto ou a área original arquivados, desde que ainda existam e
-pertençam à mesma propriedade.
+**Decisão:** uma nova operação exige propriedade, produto e área ativos; uma
+reversão pode usar a propriedade, o produto ou a área original arquivados,
+desde que ainda existam e correspondam à movimentação original.
 
 **Por quê:** arquivamento impede uso futuro, mas não pode impedir a correção de
 um evento que já aconteceu.
 
-**Consequência:** a reversão não reativa entidades e não altera `archivedAt`.
-Quem realiza a reversão agora deve ser um membro ativo quando sua identidade é
-informada. O autor ou executor histórico do movimento original pode estar
-desativado, pois ele não está iniciando a correção atual.
+**Consequência:** `registerStockMovement` verifica a propriedade ativa dentro
+da mesma transação e antes de alterar o saldo. A reversão confirma a existência
+da propriedade sem exigir que ela esteja ativa, não reativa entidades e não
+altera `archivedAt`. Quem realiza a reversão agora deve ser um membro ativo
+quando sua identidade é informada. O autor ou executor histórico do movimento
+original pode estar desativado, pois ele não está iniciando a correção atual.
 
 ## 27. StockMovement e AuditLog são append-only
 

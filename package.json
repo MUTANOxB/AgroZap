@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test:stage1.1": "tsx --test src/services/estoque/local-stock.test.ts",
+    "test:stage1.1": "tsx --test src/services/estoque/local-stock.test.ts src/services/estoque/property-operation-policy.test.ts",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

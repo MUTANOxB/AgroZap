@@ -684,7 +684,9 @@ O service de estoque executa este fluxo:
 ```text
 Comando recebido pelo service
         ↓
-Confere produto e propriedade e exige produto ativo
+Confere se a propriedade existe e está ativa
+        ↓
+Confere se o produto pertence a ela e está ativo
         ↓
 Confere área ativa, anotação e usuários atuais ativos
         ↓
@@ -723,9 +725,10 @@ Se necessário, novo movimento correto: OUT -2
 ```
 
 O registro original permanece no histórico. Um movimento só pode possuir uma
-reversão direta. Produto e área podem estar arquivados nessa correção
-histórica, mas ainda precisam existir e pertencer à mesma propriedade. A
-reversão não os reativa e copia os snapshots da movimentação original.
+reversão direta. Propriedade, produto e área podem estar arquivados nessa
+correção histórica, mas ainda precisam existir e corresponder à movimentação
+original. A reversão não os reativa e copia os snapshots da movimentação
+original.
 
 `StockMovement` e `AuditLog` são append-only nas operações normais. Uma
 correção acrescenta outro movimento ou log; ela não altera nem apaga o passado.
@@ -857,10 +860,10 @@ Registros históricos continuam apontando normalmente para pessoas desativadas.
 
 ```text
 NOVA OPERAÇÃO
-produto e área existem, pertencem à propriedade e estão ativos
+propriedade, produto e área existem, pertencem ao mesmo escopo e estão ativos
 
 REVERSÃO HISTÓRICA
-produto e área existem e pertencem à propriedade, mesmo arquivados
+propriedade, produto e área existem e correspondem ao movimento, mesmo arquivados
 ```
 
 Quem faz a reversão agora precisa ser um membro ativo quando sua identidade é

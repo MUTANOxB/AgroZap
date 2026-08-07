@@ -8,6 +8,10 @@ import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
 import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 import { StockDomainError } from "./errors";
+import {
+  requireActivePropertyForNewStockMovement,
+  requireExistingPropertyForStockReversal,
+} from "./property-operation-policy";
 
 const MAX_TRANSACTION_ATTEMPTS = 4;
 
@@ -123,6 +127,12 @@ async function assertNewMovementScope(
   transaction: Prisma.TransactionClient,
   command: MovementContext,
 ) {
+  const property = await transaction.property.findUnique({
+    where: { id: command.propertyId },
+    select: { id: true, archivedAt: true },
+  });
+  requireActivePropertyForNewStockMovement(property);
+
   const product = await transaction.stockProduct.findFirst({
     where: {
       id: command.productId,
@@ -376,6 +386,12 @@ export async function reverseStockMovement(
 
   try {
     return await runStockTransaction(async (transaction) => {
+      const property = await transaction.property.findUnique({
+        where: { id: command.propertyId },
+        select: { id: true, archivedAt: true },
+      });
+      requireExistingPropertyForStockReversal(property);
+
       const original = await transaction.stockMovement.findFirst({
         where: {
           id: command.movementId,

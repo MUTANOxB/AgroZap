@@ -28,6 +28,40 @@ As principais correções foram:
 - a anotação local que precisa alterar estoque passou a validar e preparar as
   duas mudanças antes de publicar qualquer uma delas.
 
+### Ajuste 1.1.1 — propriedade arquivada
+
+A revisão final encontrou um caso em que `registerStockMovement` validava o
+produto, a área e os usuários, mas não verificava explicitamente se a própria
+`Property` estava ativa. Assim, uma propriedade arquivada ainda poderia, em
+teoria, receber uma nova movimentação se o produto continuasse ativo.
+
+Agora a nova movimentação busca a propriedade dentro da mesma transação e
+recusa propriedades inexistentes ou com `archivedAt` preenchido antes de
+alterar qualquer saldo. Arquivamento impede novas operações.
+
+A reversão histórica mantém uma regra diferente: a propriedade precisa existir
+e o movimento original precisa pertencer a ela, mas ela pode estar arquivada.
+Essa correção não reativa propriedade, produto ou área e não modifica nenhum
+`archivedAt`.
+
+Arquivos alterados neste ajuste:
+
+- `package.json`;
+- `src/services/estoque/errors.ts`;
+- `src/services/estoque/property-operation-policy.ts`;
+- `src/services/estoque/property-operation-policy.test.ts`;
+- `src/services/estoque/stock-movement.service.ts`;
+- `docs/DECISOES.md`;
+- `docs/HISTORICO_MUDANCAS.md`;
+- `docs/MAPA_DO_CODIGO.md`.
+
+O script `npm run test:stage1.1` ganhou quatro testes unitários: propriedade
+ativa permite nova movimentação, propriedade arquivada a recusa, propriedade
+arquivada continua aceita pela política de reversão e propriedade inexistente
+é recusada na reversão. Os testes unitários não simulam uma transação Prisma
+completa. A confirmação integrada de saldo, movimento, auditoria e rollback em
+PostgreSQL real continua pendente de um banco configurado.
+
 ### O que são snapshots?
 
 Snapshot é uma cópia do nome no momento em que o evento aconteceu. O ID
