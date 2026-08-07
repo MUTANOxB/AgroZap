@@ -1,8 +1,16 @@
 .env
-.env.local
+.env.*
+!.env.example
 node_modules/
 .next/
+.expo/
+.tools/
+dist-test/
+dist-test-sdk54/
 out/
+src/generated/prisma/
 *.tsbuildinfo
+*.log
+node-v*-win-x64.zip
 next-env.d.ts
 dev-server*.log

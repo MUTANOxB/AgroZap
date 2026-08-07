@@ -1,0 +1,2 @@
+# Não edite manualmente depois que migrações forem aplicadas.
+provider = "postgresql"

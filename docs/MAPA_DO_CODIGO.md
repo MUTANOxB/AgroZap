@@ -4,29 +4,72 @@ Este documento é um guia simples para estudar o projeto. Você não precisa
 entender tudo de uma vez. A ideia é saber onde cada parte está e acompanhar o
 caminho dos dados aos poucos.
 
+> **Importante:** existem dois caminhos de dados durante a migração. As telas
+> ainda usam Context e `localStorage`. O schema Prisma e os services formam a
+> nova base do servidor, mas ainda não são chamados pelas páginas.
+
+### Visão rápida dos dois caminhos
+
+**ATUAL — usado pela interface:**
+
+```text
+Página client
+    ↓
+AgroAppContext
+    ↓
+localStorage do navegador
+    ↓
+React atualiza as páginas
+```
+
+**EM CONSTRUÇÃO — fundação do servidor:**
+
+```text
+Página
+    ↓
+API/Server ainda não criada
+    ↓
+Service com regra de negócio
+    ↓
+Prisma
+    ↓
+PostgreSQL
+```
+
+O segundo fluxo descreve o destino da arquitetura. Não significa que um
+cadastro feito hoje na tela já esteja chegando ao PostgreSQL.
+
 ## 1. Estrutura geral do projeto
 
 As pastas mais importantes para começar são:
 
 ```text
 AgroZap/
-├── docs/                 Documentação do projeto
+├── docs/                 Documentação, decisões e histórico
+├── prisma/
+│   ├── schema.prisma     Modelos e relações do banco
+│   ├── migrations/       Histórico da estrutura do PostgreSQL
+│   └── seed.ts           Dados fictícios para desenvolvimento
 ├── public/
 │   └── brand/            Arquivos da marca AgroZap
 ├── src/
 │   ├── app/              Páginas, layout e estilos gerais
 │   ├── components/       Partes visuais reutilizáveis
-│   ├── context/          Dados compartilhados entre as páginas
-│   ├── data/             Dados de demonstração
+│   ├── context/          Ponte temporária com o localStorage
+│   ├── data/             Dados de demonstração da interface
+│   ├── generated/prisma/ Prisma Client gerado automaticamente
 │   ├── hooks/            Lógicas reutilizáveis dos componentes
-│   ├── lib/              Funções e configurações auxiliares
-│   └── types/            Tipos usados pelo TypeScript
+│   ├── lib/              Conexão Prisma e funções auxiliares
+│   ├── services/         Regras de negócio do novo servidor
+│   └── types/            Tipos temporários usados pelas telas
+├── .env.example          Exemplo sem credenciais reais
+├── prisma.config.ts      Configuração de schema, migration e seed
 ├── package.json          Dependências e comandos do projeto
 └── .next/                Arquivos gerados automaticamente pelo Next.js
 ```
 
-A pasta `.next` não deve ser estudada nem editada. Ela é criada
-automaticamente quando o projeto é executado ou compilado.
+As pastas `.next` e `src/generated/prisma` são geradas automaticamente. Não
+devem ser editadas à mão.
 
 ## 2. Para que serve `src/app`
 
@@ -490,3 +533,276 @@ Ao estudar uma funcionalidade, procure responder quatro perguntas:
 
 Se você conseguir seguir essas quatro etapas, já está entendendo o caminho
 principal dos dados no AgroZap.
+
+## 10. A nova fundação do banco
+
+### `prisma/schema.prisma`
+
+É o mapa dos dados persistentes. Ele define modelos, campos, tipos, relações,
+índices e regras de unicidade.
+
+Os principais modelos são:
+
+| Modelo | Para que serve |
+| --- | --- |
+| `Property` | Representa uma propriedade rural. |
+| `User` | Representa uma pessoa, com telefone único. |
+| `PropertyMember` | Liga uma pessoa a uma propriedade e informa seu papel. |
+| `Area` | Guarda uma área da propriedade. |
+| `AreaAlias` | Guarda apelidos de uma área. |
+| `StockProduct` | Guarda o produto e seu saldo atual. |
+| `ProductAlias` | Guarda apelidos de um produto. |
+| `StockMovement` | Guarda cada entrada, saída, ajuste ou reversão. |
+| `FarmRecord` | Guarda uma anotação ou acontecimento rural. |
+| `AuditLog` | Guarda a trilha técnica de uma operação importante. |
+
+Áreas, produtos, movimentos, anotações e auditorias possuem `propertyId`. Isso
+impede que a arquitetura dependa de uma única fazenda fixa.
+
+### `prisma.config.ts`
+
+Informa ao Prisma:
+
+- onde está o schema;
+- onde ficam as migrations;
+- qual comando executa o seed;
+- onde obter a `DATABASE_URL`.
+
+A URL vem do ambiente. Credenciais reais não devem ser escritas nesse arquivo.
+
+### `prisma/migrations/`
+
+A migration é o roteiro SQL que cria e altera a estrutura do PostgreSQL. A
+migration inicial desta etapa cria enums, tabelas, índices, chaves e relações.
+
+Ela não é a mesma coisa que o seed:
+
+- migration cria a estrutura;
+- seed preenche exemplos de desenvolvimento.
+
+### `prisma/seed.ts`
+
+Cria uma propriedade de demonstração, usuários fictícios, participações,
+áreas, produtos, apelidos, saldos iniciais e anotações.
+
+Os telefones são reservados para desenvolvimento. O seed não lê nem importa os
+dados que já existem no `localStorage`.
+
+### `src/lib/prisma.ts`
+
+Cria a conexão central do Prisma usando o adapter PostgreSQL. Em
+desenvolvimento, guarda o client em uma variável global para que o hot reload
+do Next.js não abra vários pools de conexão.
+
+Se `DATABASE_URL` não estiver configurada, o arquivo mostra uma mensagem clara.
+
+### `src/generated/prisma/`
+
+É o client TypeScript gerado pelo Prisma a partir do schema. Services importam
+modelos, enums e `Prisma.Decimal` dessa pasta.
+
+Não altere os arquivos gerados. Use `npm run db:generate` depois de mudar o
+schema.
+
+## 11. Como os modelos se relacionam
+
+Uma visão simplificada é:
+
+```text
+Property
+├── PropertyMember ── User
+├── Area ── AreaAlias
+├── StockProduct ── ProductAlias
+├── StockMovement
+├── FarmRecord
+└── AuditLog
+```
+
+Um `User` pode participar de várias propriedades por meio de
+`PropertyMember`. O papel pertence a essa participação, não diretamente ao
+usuário.
+
+Um `StockMovement` sempre pertence a uma propriedade e a um produto. Ele pode
+também apontar para uma área, uma anotação, quem registrou e quem executou.
+
+Um `FarmRecord` pode ser apenas uma observação, como “porteira quebrada”. Por
+isso, área e produto são opcionais e uma anotação não é automaticamente uma
+movimentação de estoque.
+
+## 12. Para que serve `src/services`
+
+Service é o lugar das regras de negócio. Uma página não deve decidir sozinha
+se uma saída é permitida ou como criar a auditoria.
+
+### Estoque
+
+- `src/services/estoque/errors.ts`: erros de domínio com códigos estáveis.
+- `src/services/estoque/local-stock.ts`: proteção temporária contra estoque
+  negativo no Context.
+- `src/services/estoque/product.service.ts`: cria produto, apelidos, saldo de
+  abertura e auditoria.
+- `src/services/estoque/stock-movement.service.ts`: cria entradas, saídas,
+  ajustes e reversões no banco.
+- `src/services/estoque/index.ts`: reúne as exportações da pasta.
+
+### Áreas
+
+- `src/services/talhoes/area.service.ts`: valida e cria área, apelidos e
+  auditoria.
+- `src/services/talhoes/index.ts`: reúne as exportações.
+
+### Anotações
+
+- `src/services/registros/farm-record.service.ts`: valida relações e cria um
+  `FarmRecord` com auditoria.
+- `src/services/registros/index.ts`: reúne as exportações.
+
+### Auditoria e usuários
+
+- `src/services/auditoria/audit-log.service.ts`: cria `AuditLog` usando a
+  transação que o chamou.
+- `src/services/usuarios/property-membership.ts`: verifica se os usuários
+  informados pertencem à propriedade.
+
+### WhatsApp
+
+`src/services/whatsapp` continua sem implementação. O diretório existe apenas
+como preparação de organização. Nenhum provedor ou webhook foi adicionado.
+
+## 13. Caminho seguro de uma movimentação no banco
+
+O service de estoque executa este fluxo:
+
+```text
+Comando recebido pelo service
+        ↓
+Confere produto e propriedade
+        ↓
+Confere área, anotação e membros informados
+        ↓
+Lê o saldo atual
+        ↓
+Valida quantidade e estoque disponível
+        ↓
+Atualiza o saldo somente se ele não mudou
+        ↓
+Cria StockMovement com antes e depois
+        ↓
+Cria AuditLog
+        ↓
+Confirma a transação inteira
+```
+
+A transação usa o nível `Serializable`. Além disso, a atualização compara o
+saldo lido com o saldo ainda existente no banco. Se outra operação tiver
+alterado o produto no mesmo momento, o fluxo tenta novamente até quatro vezes.
+Depois disso, devolve um erro de conflito em vez de gravar um resultado
+duvidoso.
+
+Saldo, movimento e auditoria são confirmados juntos. Se uma dessas partes
+falhar, todas são desfeitas.
+
+### Reversão
+
+Uma reversão cria um novo movimento ligado ao movimento original:
+
+```text
+Movimento original: OUT -3
+        ↓
+Reversão: REVERSAL +3
+        ↓
+Se necessário, novo movimento correto: OUT -2
+```
+
+O registro original permanece no histórico. Um movimento só pode possuir uma
+reversão direta.
+
+## 14. Tipos do frontend e tipos do banco
+
+Os arquivos abaixo agora concentram os formatos temporários usados pelas telas:
+
+- `src/types/talhao.ts`;
+- `src/types/estoque.ts`;
+- `src/types/registro.ts`.
+
+O Context reexporta esses tipos por compatibilidade, evitando quebrar todos os
+imports de uma vez.
+
+Os formatos ainda não são iguais aos modelos Prisma. Exemplos:
+
+| Frontend temporário | Banco |
+| --- | --- |
+| ID numérico com `Date.now()` | ID textual CUID |
+| tamanho como `"8 hectares"` | `Decimal` + unidade separada |
+| data como texto | `DateTime`/`Timestamptz` |
+| valor como `"R$ 85,00"` | `Decimal` |
+| responsável como texto | relações `createdBy` e `performedBy` |
+
+A API/Server futura será responsável por validar e converter esses formatos.
+Não copie o tipo legado para o banco nem envie um objeto Prisma diretamente
+para um componente client.
+
+## 15. O papel temporário do AgroAppContext
+
+O `AgroAppContext` ainda é a fonte das telas para:
+
+- áreas;
+- anotações;
+- produtos;
+- Modo Simples ou Completo.
+
+Ele continua salvando as chaves `agrozap-mvp-data` e `agrozap-settings` no
+navegador. A diferença desta etapa é que a mudança local de saldo chama
+`calculateLocalStockBalance`, que rejeita uma retirada sem saldo.
+
+Essa proteção não transforma o `localStorage` em banco. Ela não cria movimento,
+auditoria, usuário ou transação PostgreSQL.
+
+## 16. Dados locais, seed e banco são fontes diferentes
+
+Durante a transição existem dois conjuntos independentes de demonstração:
+
+- os exemplos do Context, usados quando o navegador ainda não possui dados;
+- os exemplos do seed, inseridos no PostgreSQL quando `npm run db:seed` é
+  executado.
+
+Rodar o seed não altera o navegador. Cadastrar pela tela não altera o seed nem
+o PostgreSQL. Uma etapa futura deverá decidir como importar os dados locais e
+como evitar duplicação.
+
+## 17. Comandos importantes
+
+```bash
+npm run dev          # executa a interface com hot reload
+npm run typecheck    # verifica os tipos TypeScript
+npm run lint         # verifica padrões de código
+npm run build        # cria a versão de produção
+npm run db:validate  # valida o schema Prisma
+npm run db:generate  # gera o Prisma Client
+npm run db:migrate   # aplica/cria migrations no ambiente de desenvolvimento
+npm run db:seed      # carrega dados fictícios no PostgreSQL
+```
+
+Os comandos de banco precisam de `DATABASE_URL` no `.env`. O arquivo `.env`
+está ignorado pelo Git; `.env.example` contém apenas o nome da variável.
+
+## 18. O que estudar nesta nova etapa
+
+Uma ordem recomendada é:
+
+1. leia `PROJETO.md` para entender objetivo e status;
+2. compare os dois fluxos no começo deste mapa;
+3. abra `prisma/schema.prisma` e localize `Property`;
+4. siga suas relações até `StockProduct` e `StockMovement`;
+5. leia `src/services/estoque/local-stock.ts`, usado pelo MVP;
+6. leia `src/services/estoque/stock-movement.service.ts`, preparado para o
+   banco;
+7. compare os dois caminhos sem confundi-los;
+8. consulte `docs/DECISOES.md` para saber por que cada escolha foi feita;
+9. consulte `docs/HISTORICO_MUDANCAS.md` para saber o que ainda não está pronto.
+
+Ao investigar uma regra do servidor, acrescente duas perguntas às quatro do
+MVP:
+
+5. Qual service valida essa operação?
+6. Quais dados e auditorias precisam ser salvos na mesma transação?

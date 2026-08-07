@@ -3,6 +3,10 @@
 Este glossário explica palavras usadas no projeto de forma simples. Os exemplos
 foram baseados no código atual do AgroZap.
 
+Durante a migração, algumas palavras descrevem o fluxo **ATUAL** das telas e
+outras descrevem a fundação de banco **EM CONSTRUÇÃO**. Sempre observe no
+exemplo se o dado está no `localStorage` ou no PostgreSQL.
+
 ## React
 
 React é uma ferramenta para criar interfaces.
@@ -501,3 +505,473 @@ Usuário digita
 → React atualiza a tela
 → useEffect salva os dados no localStorage
 ```
+
+Esse resumo continua correto para as telas atuais. Os conceitos abaixo
+explicam a fundação que substituirá esse armazenamento local em uma etapa
+futura.
+
+## Banco de dados
+
+Banco de dados é um sistema preparado para guardar e consultar informações de
+forma organizada e durável.
+
+No AgroZap, o banco guardará propriedades, usuários, áreas, produtos,
+movimentações, anotações e auditorias. Diferente do `localStorage`, ele poderá
+ser acessado com segurança por diferentes usuários autorizados.
+
+Ter o schema criado não significa que as telas já estejam usando o banco.
+
+## PostgreSQL
+
+PostgreSQL é o programa de banco de dados escolhido para o AgroZap.
+
+Ele organiza os dados em tabelas e oferece recursos como relações, índices,
+transações, tipos decimais e JSONB.
+
+Exemplo: uma linha de `StockProduct` guarda o saldo atual de um produto, e
+várias linhas de `StockMovement` explicam como esse saldo mudou.
+
+## Prisma
+
+Prisma é a ferramenta usada pelo código TypeScript para trabalhar com o
+PostgreSQL.
+
+No AgroZap, o Prisma:
+
+- lê `prisma/schema.prisma`;
+- valida os modelos;
+- gera o Prisma Client;
+- organiza migrations;
+- permite consultar e gravar dados nos services.
+
+Exemplo: o service chama `transaction.stockMovement.create(...)` para criar uma
+movimentação dentro de uma transação.
+
+## ORM
+
+ORM significa *Object-Relational Mapper*, ou mapeador objeto-relacional.
+
+É uma camada que permite trabalhar com tabelas do banco usando objetos e tipos
+do código. Prisma é o ORM do AgroZap.
+
+Exemplo: o modelo `Area` do schema gera operações TypeScript como
+`db.area.findFirst()` e `transaction.area.create()`.
+
+O ORM ajuda, mas não substitui as regras de negócio. A validação de saldo ainda
+pertence ao service de estoque.
+
+## Schema
+
+Schema é o mapa da estrutura do banco.
+
+O arquivo `prisma/schema.prisma` diz quais modelos existem, quais campos eles
+possuem e como se relacionam.
+
+Exemplo: o schema define que um `StockMovement` pertence a uma `Property` e a
+um `StockProduct`, e pode apontar para uma `Area`.
+
+## Model
+
+Model é a descrição de um tipo de entidade persistente.
+
+Um model normalmente vira uma tabela no PostgreSQL.
+
+Exemplo: `model User` descreve uma pessoa com ID, nome, telefone e datas. Cada
+usuário salvo vira uma linha na tabela correspondente.
+
+## Prisma Client
+
+Prisma Client é o código gerado a partir do schema para fazer consultas com
+TypeScript.
+
+No AgroZap, ele é gerado em `src/generated/prisma` por:
+
+```bash
+npm run db:generate
+```
+
+Essa pasta não deve ser alterada manualmente.
+
+## Adapter PostgreSQL
+
+Adapter é a peça que conecta o Prisma ao driver do banco.
+
+O AgroZap usa `@prisma/adapter-pg`. `src/lib/prisma.ts` recebe a
+`DATABASE_URL`, cria o adapter e entrega uma instância central de
+`PrismaClient`.
+
+## Migration
+
+Migration é uma alteração versionada na estrutura do banco.
+
+Exemplo: a migration inicial cria as tabelas `Property`, `User`, `Area`,
+`StockProduct`, `StockMovement`, `FarmRecord` e `AuditLog`.
+
+Quando o schema mudar, uma nova migration deve explicar ao PostgreSQL como sair
+da estrutura antiga e chegar à nova. Migration não serve para importar o
+`localStorage`.
+
+## Seed
+
+Seed é um script que insere dados iniciais ou fictícios para desenvolvimento.
+
+O `prisma/seed.ts` do AgroZap cria uma propriedade de demonstração, três
+usuários fictícios, áreas, produtos, apelidos, saldos iniciais e anotações.
+
+Ele é executado por:
+
+```bash
+npm run db:seed
+```
+
+Seed não é migration: a migration cria a estrutura; o seed cria exemplos
+dentro dela.
+
+## Relation
+
+Relation, ou relação, mostra como dois modelos estão ligados.
+
+Exemplo: uma propriedade possui vários produtos, mas cada produto pertence a
+uma propriedade. Essa é uma relação de um para muitos.
+
+Outro exemplo: usuários e propriedades se ligam por `PropertyMember`,
+permitindo que os dois lados tenham vários participantes.
+
+## Foreign key
+
+Foreign key, ou chave estrangeira, é um campo que aponta para o ID de outro
+registro e ajuda o banco a manter a relação válida.
+
+Exemplo: `StockProduct.propertyId` aponta para `Property.id`. Assim, um produto
+não deve indicar uma propriedade inexistente.
+
+No Prisma, campos como `fields: [propertyId]` e `references: [id]` descrevem
+essa ligação.
+
+## Índice
+
+Índice é uma estrutura que ajuda o banco a encontrar dados mais rapidamente.
+
+Exemplo: `StockMovement` possui índice por propriedade e data. Isso prepara uma
+consulta como “mostrar os movimentos mais recentes desta propriedade”.
+
+Índices ajudam na leitura, mas ocupam espaço e precisam ser escolhidos de forma
+consciente.
+
+## Unique
+
+`Unique` é uma regra que não permite repetir determinado valor ou combinação.
+
+Exemplo: o mesmo usuário não pode possuir dois vínculos iguais com a mesma
+propriedade, pois `PropertyMember` tem unicidade em `propertyId + userId`.
+
+Nomes normalizados de áreas e produtos também são únicos dentro de cada
+propriedade.
+
+## CUID e UUID
+
+CUID e UUID são formatos usados para criar IDs difíceis de repetir em sistemas
+distribuídos.
+
+O AgroZap escolheu **CUID**, configurado como `@default(cuid())` nos modelos.
+
+Exemplo: um produto do banco recebe um ID textual gerado pelo banco/Prisma, em
+vez de usar `Date.now()`.
+
+UUID é outra opção válida, mas não é o formato escolhido nesta etapa.
+
+## Decimal
+
+Decimal é um tipo numérico apropriado para valores que precisam de casas
+decimais previsíveis.
+
+Exemplos no AgroZap:
+
+- `0,5` litro de produto;
+- `2,75` kg de semente;
+- valor unitário de um insumo;
+- tamanho e produtividade de uma área.
+
+No banco, quantidades usam até quatro casas decimais e valores monetários
+estruturados usam precisão própria. Os services usam `Prisma.Decimal` para
+evitar cálculos imprecisos com ponto flutuante.
+
+## DateTime
+
+`DateTime` representa data e horário.
+
+Exemplo: `occurredAt` informa quando uma movimentação ou anotação aconteceu.
+`createdAt` informa quando o registro entrou no sistema.
+
+Isso é diferente de validade e data de compra, que no schema usam apenas a
+parte de data do PostgreSQL.
+
+## Timestamptz
+
+`Timestamptz` é o tipo do PostgreSQL usado para guardar um instante de tempo
+com referência de fuso.
+
+O AgroZap usa `Timestamptz(3)` em acontecimentos, criação, atualização,
+arquivamento e auditoria. A interface futura deverá converter o instante para o
+fuso adequado ao exibir.
+
+## Enum
+
+Enum é uma lista fechada de valores permitidos.
+
+Exemplo: `StockMovementType` aceita somente:
+
+- `IN` para entrada;
+- `OUT` para saída;
+- `ADJUSTMENT` para ajuste;
+- `REVERSAL` para reversão.
+
+Isso evita gravar variações como “saida”, “Saída” e “retirada” no mesmo campo.
+
+O enum `RecordSource` inclui `WHATSAPP`, mas isso não implementa WhatsApp; ele
+somente reserva uma origem para o futuro.
+
+## Transaction
+
+Transaction, ou transação, reúne várias alterações em uma única operação.
+
+Exemplo: uma saída de estoque precisa atualizar o saldo, criar
+`StockMovement` e criar `AuditLog`. Se a auditoria falhar, saldo e movimento
+também são desfeitos.
+
+Uma forma simples de lembrar é:
+
+> Ou tudo é salvo, ou nada é salvo.
+
+## Serializable
+
+`Serializable` é um nível forte de isolamento de transação. Ele faz operações
+concorrentes se comportarem como se tivessem acontecido em uma ordem segura.
+
+Exemplo: se duas pessoas retirarem o mesmo produto ao mesmo tempo, o service
+não deve deixar as duas usarem o mesmo saldo antigo.
+
+O service combina esse nível com comparação do saldo e novas tentativas.
+
+## Concorrência
+
+Concorrência acontece quando duas operações tentam alterar o mesmo dado quase
+ao mesmo tempo.
+
+Exemplo: dois funcionários enviam uma retirada de 60 litros quando existem 100
+litros. Apenas uma retirada pode usar aquele saldo sem que a outra reavalie a
+sobra.
+
+## Atualização otimista
+
+Atualização otimista significa tentar salvar somente se o valor ainda for o
+mesmo que foi lido.
+
+O service de estoque atualiza o produto com uma condição semelhante a “saldo
+ainda é 100”. Se outra transação já mudou o saldo, nenhuma linha é atualizada e
+a operação tenta novamente.
+
+## Retry
+
+Retry significa tentar novamente uma operação que falhou por um conflito
+temporário.
+
+O estoque tenta uma transação concorrente até quatro vezes. Se o conflito
+continuar, retorna uma mensagem pedindo nova tentativa. Erros reais de domínio,
+como estoque insuficiente, não viram retry automático.
+
+## Service
+
+Service é um arquivo que reúne uma operação e suas regras de negócio.
+
+Exemplo: `stock-movement.service.ts` valida quantidade, saldo, propriedade,
+relações e autoria antes de alterar o banco.
+
+A página deve pedir a operação ao service; ela não deve copiar essas regras.
+
+## Regra de negócio
+
+Regra de negócio é uma condição que vem do funcionamento do AgroZap, não da
+aparência da tela.
+
+Exemplos:
+
+- uma saída não pode deixar estoque negativo;
+- um usuário informado deve pertencer à propriedade;
+- uma movimentação não pode ser revertida duas vezes;
+- nome e apelido não podem colidir na mesma propriedade.
+
+Essas regras pertencem aos services para valerem também em futuras APIs,
+WhatsApp ou outros canais.
+
+## Erro de domínio
+
+Erro de domínio informa que uma regra do sistema impediu a operação.
+
+Exemplo: `StockDomainError` com código `INSUFFICIENT_STOCK` produz a mensagem
+“Estoque insuficiente.”.
+
+O código estável ajuda uma futura API a escolher a resposta correta sem
+depender apenas do texto visível.
+
+## Audit log
+
+Audit log é a trilha técnica de uma ação importante.
+
+O model `AuditLog` pode registrar:
+
+- quem agiu;
+- qual foi a ação;
+- qual entidade foi afetada;
+- origem da operação;
+- dados anteriores e posteriores;
+- informações adicionais;
+- data e horário.
+
+Exemplo: uma saída pode registrar saldo antes `86`, saldo depois `83` e o ID do
+produto. Auditoria não é a mesma coisa que a lista amigável de anotações.
+
+## JSON e JSONB no banco
+
+JSON organiza informações em pares de nome e valor. O glossário já mostrou seu
+uso em respostas de API.
+
+No PostgreSQL, o AgroZap usa JSONB em `beforeData`, `afterData` e `metadata` do
+`AuditLog`.
+
+Exemplo simplificado:
+
+```json
+{
+  "productId": "id-do-produto",
+  "quantityChange": "-3"
+}
+```
+
+JSONB permite guardar contexto variável. Ele não deve substituir campos e
+relações importantes que precisam ser validados pelo banco.
+
+## Property
+
+`Property` é uma propriedade rural cadastrada no banco.
+
+Exemplo: “Fazenda de demonstração” é uma `Property`. Áreas, produtos,
+movimentos e registros pertencem a ela por `propertyId`.
+
+O nome “Fazenda Santa Helena” ainda aparece fixo no dashboard do MVP, mas não é
+a única propriedade possível no novo schema.
+
+## PropertyMember
+
+`PropertyMember` é o vínculo de um usuário com uma propriedade.
+
+Exemplo: Maria pode ser `MANAGER` em uma fazenda e `VIEWER` em outra. O papel
+fica no vínculo porque pertence à participação, não à pessoa em todos os
+lugares.
+
+## Alias
+
+Alias é um apelido ou nome alternativo.
+
+Exemplo:
+
+```text
+Nome oficial: Produto para controle de mato
+Apelidos: herbicida, veneno do mato
+```
+
+`AreaAlias` e `ProductAlias` preparam buscas mais naturais. Eles não usam IA
+nesta etapa.
+
+## Normalização de nome
+
+Normalização cria uma versão comparável de um nome, sem alterar o texto que
+será exibido.
+
+Exemplo: “Roça do Fundo” vira algo equivalente a `roca do fundo` para busca e
+detecção de repetição. A versão com acento continua salva para a interface.
+
+## StockMovement
+
+`StockMovement` é uma mudança auditável no estoque.
+
+Ele guarda tipo, quantidade alterada, unidade, saldo anterior, saldo posterior,
+origem, data, pessoas e motivo.
+
+Exemplo: uma saída de 3 litros com saldo de 86 registra `balanceBefore = 86` e
+`balanceAfter = 83`.
+
+## Reversal
+
+Reversal, ou reversão, é um novo movimento que desfaz matematicamente outro sem
+apagá-lo.
+
+Exemplo: a reversão de uma saída de 3 litros cria uma entrada de 3 ligada ao
+movimento original. Depois pode ser criada a saída correta.
+
+## createdBy e performedBy
+
+`createdBy` indica quem registrou ou confirmou. `performedBy` indica quem
+executou a atividade.
+
+Exemplo: João registra “Pedro aplicou o produto”. João é `createdBy`; Pedro é
+`performedBy`.
+
+Esses campos já existem no banco, mas a interface ainda precisa de login para
+preenchê-los de forma real.
+
+## RecordSource
+
+`RecordSource` informa de onde uma operação veio.
+
+Os valores preparados são `WEB`, `WHATSAPP`, `SYSTEM` e `API`.
+
+Exemplo: o seed usa `SYSTEM`. As futuras telas usarão normalmente `WEB` ou
+`API`. O valor não prova que o canal correspondente já esteja implementado.
+
+## API/Server do domínio
+
+É a camada de servidor que receberá pedidos das páginas, identificará o usuário
+e chamará os services.
+
+O AgroZap já possui `/api/clima`, mas ainda não possui a API que liga cadastros
+de áreas, produtos e anotações ao PostgreSQL.
+
+O fluxo planejado é:
+
+```text
+Tela → API/Server → Service → Prisma → PostgreSQL
+```
+
+## Variável de ambiente
+
+Variável de ambiente é uma configuração fornecida fora do código.
+
+Exemplo: `DATABASE_URL` contém o endereço de conexão do PostgreSQL. O projeto
+mostra apenas o nome em `.env.example`; o valor real fica no `.env`, que não
+deve ser enviado ao Git.
+
+## PendingAction
+
+`PendingAction` será uma ação proposta que aguarda confirmação antes de alterar
+dados.
+
+Exemplo futuro: uma mensagem é interpretada como retirada de 3 litros, o
+usuário revisa o resumo e confirma antes da execução.
+
+Esse conceito é **PLANEJADO**. A entidade não foi criada nesta etapa porque o
+fluxo de autenticação, validade e confirmação ainda precisa ser definido.
+
+## Resumo dos dois fluxos
+
+```text
+ATUAL
+Tela → Context → localStorage
+
+EM CONSTRUÇÃO
+Tela → API/Server → Service → Prisma → PostgreSQL
+```
+
+O primeiro mantém o MVP funcionando. O segundo oferece a base para dados
+compartilhados, transações e auditoria, mas só passará a ser usado pelas telas
+depois que a camada API/Server for implementada.

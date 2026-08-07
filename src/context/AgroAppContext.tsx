@@ -7,95 +7,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { StockDomainError } from "@/services/estoque/errors";
+import { calculateLocalStockBalance } from "@/services/estoque/local-stock";
+import type { StockProduct } from "@/types/estoque";
+import type { Annotation } from "@/types/registro";
+import type { Area } from "@/types/talhao";
 
-export type ProductionType =
-  | "Lavoura"
-  | "Pasto"
-  | "Horta"
-  | "Pomar"
-  | "Estufa"
-  | "Outro";
-
-export type Area = {
-  id: number;
-  name: string;
-  type: ProductionType;
-  size: string;
-  note: string;
-  currentCrop?: string;
-  harvest?: string;
-  soilType?: string;
-  irrigation?: string;
-  estimatedProductivity?: string;
-};
-
-export type AnnotationType =
-  | "Pulverização"
-  | "Plantio"
-  | "Colheita"
-  | "Compra"
-  | "Entrada no estoque"
-  | "Manutenção"
-  | "Vistoria"
-  | "Pagamento"
-  | "Observação";
-
-export type Annotation = {
-  id: number;
-  type: AnnotationType;
-  location: string;
-  date: string;
-  description: string;
-  quantity: string;
-  value: string;
-  responsible: string;
-  productId: number | null;
-  productName: string;
-  stockQuantity: number | null;
-  appliedDose?: string;
-  doseUnit?: string;
-  harvest?: string;
-  supplier?: string;
-  productBatch?: string;
-  technicalNote?: string;
-};
-
-export type ProductCategory =
-  | "Semente"
-  | "Adubo"
-  | "Defensivo"
-  | "Combustível"
-  | "Ração"
-  | "Peça"
-  | "Ferramenta"
-  | "Outro";
-
-export type ProductUnit =
-  | "kg"
-  | "litros"
-  | "sacos"
-  | "unidades"
-  | "caixas"
-  | "toneladas"
-  | "metros"
-  | "outro";
-
-export type StockProduct = {
-  id: number;
-  name: string;
-  category: ProductCategory;
-  quantity: number;
-  unit: ProductUnit;
-  minimumStock: number | null;
-  storageLocation: string;
-  note: string;
-  supplier?: string;
-  unitValue?: string;
-  expirationDate?: string;
-  batchNumber?: string;
-  purchaseDate?: string;
-  technicalNote?: string;
-};
+// Reexportações temporárias preservam os imports existentes enquanto os tipos
+// passam a ter uma única definição dentro de src/types.
+export type { ProductCategory, ProductUnit, StockProduct } from "@/types/estoque";
+export type { Annotation, AnnotationType } from "@/types/registro";
+export type { Area, ProductionType } from "@/types/talhao";
 
 export type UsageMode = "simples" | "completo";
 
@@ -277,14 +199,22 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
   }
 
   /*
-   * Qualquer tela pode atualizar o estoque por esta função. Valores positivos
-   * representam entrada e negativos representam uso; o saldo nunca fica abaixo de zero.
+   * Esta é a ponte temporária do localStorage. A regra definitiva vive no
+   * serviço Prisma, mas o MVP também precisa rejeitar uma saída sem saldo.
    */
   function atualizarQuantidadeProduto(productId: number, change: number) {
+    const product = produtos.find((currentProduct) => currentProduct.id === productId);
+
+    if (!product) {
+      throw new StockDomainError("PRODUCT_NOT_FOUND", "Produto não encontrado.");
+    }
+
+    const nextBalance = calculateLocalStockBalance(product.quantity, change);
+
     setProdutos((currentProducts) =>
       currentProducts.map((product) =>
         product.id === productId
-          ? { ...product, quantity: Math.max(0, product.quantity + change) }
+          ? { ...product, quantity: nextBalance }
           : product,
       ),
     );

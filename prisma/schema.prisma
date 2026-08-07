@@ -1,1 +1,293 @@
 
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PropertyRole {
+  OWNER
+  MANAGER
+  EMPLOYEE
+  VIEWER
+}
+
+enum AreaType {
+  FIELD
+  PASTURE
+  VEGETABLE_GARDEN
+  ORCHARD
+  GREENHOUSE
+  OTHER
+}
+
+enum ProductCategory {
+  SEED
+  FERTILIZER
+  PESTICIDE
+  FUEL
+  FEED
+  PART
+  TOOL
+  OTHER
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum RecordSource {
+  WEB
+  WHATSAPP
+  SYSTEM
+  API
+}
+
+enum FarmRecordType {
+  SPRAYING
+  PLANTING
+  HARVEST
+  PURCHASE
+  STOCK_ENTRY
+  MAINTENANCE
+  INSPECTION
+  PAYMENT
+  NOTE
+}
+
+model Property {
+  id             String          @id @default(cuid())
+  name           String
+  slug           String          @unique
+  archivedAt     DateTime?       @db.Timestamptz(3)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  members        PropertyMember[]
+  areas          Area[]
+  areaAliases    AreaAlias[]
+  products       StockProduct[]
+  productAliases ProductAlias[]
+  stockMovements StockMovement[]
+  farmRecords    FarmRecord[]
+  auditLogs      AuditLog[]
+
+  @@index([archivedAt])
+}
+
+model User {
+  id                      String          @id @default(cuid())
+  name                    String
+  phone                   String          @unique @db.VarChar(16)
+  deactivatedAt           DateTime?       @db.Timestamptz(3)
+  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+  memberships             PropertyMember[]
+  createdStockMovements   StockMovement[] @relation("StockMovementCreatedBy")
+  performedStockMovements StockMovement[] @relation("StockMovementPerformedBy")
+  createdFarmRecords      FarmRecord[]    @relation("FarmRecordCreatedBy")
+  performedFarmRecords    FarmRecord[]    @relation("FarmRecordPerformedBy")
+  auditLogs               AuditLog[]      @relation("AuditActor")
+
+  @@index([deactivatedAt])
+}
+
+model PropertyMember {
+  id         String       @id @default(cuid())
+  propertyId String
+  userId     String
+  role       PropertyRole
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @db.Timestamptz(3)
+  property   Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([propertyId, userId])
+  @@index([userId])
+}
+
+model Area {
+  id                    String       @id @default(cuid())
+  propertyId            String
+  name                  String
+  normalizedName        String
+  type                  AreaType
+  size                  Decimal?     @db.Decimal(14, 4)
+  sizeUnit              String?
+  note                  String?      @db.Text
+  currentCrop           String?
+  harvest               String?
+  soilType              String?
+  irrigation            String?
+  estimatedProductivity Decimal?     @db.Decimal(14, 4)
+  productivityUnit      String?
+  archivedAt            DateTime?    @db.Timestamptz(3)
+  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime     @updatedAt @db.Timestamptz(3)
+  property              Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  aliases               AreaAlias[]
+  stockMovements        StockMovement[]
+  farmRecords           FarmRecord[]
+
+  @@unique([propertyId, normalizedName])
+  @@index([propertyId, createdAt])
+  @@index([propertyId, archivedAt])
+}
+
+model AreaAlias {
+  id             String   @id @default(cuid())
+  propertyId     String
+  areaId         String
+  name           String
+  normalizedName String
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  area           Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, normalizedName])
+  @@index([areaId])
+}
+
+model StockProduct {
+  id               String          @id @default(cuid())
+  propertyId       String
+  name             String
+  normalizedName   String
+  category         ProductCategory
+  quantity         Decimal         @default(0) @db.Decimal(18, 4)
+  unit             String
+  minimumStock     Decimal?        @db.Decimal(18, 4)
+  storageLocation  String?
+  note             String?         @db.Text
+  supplier         String?
+  unitValue        Decimal?        @db.Decimal(18, 4)
+  expirationDate   DateTime?       @db.Date
+  batchNumber      String?
+  purchaseDate     DateTime?       @db.Date
+  technicalNote    String?         @db.Text
+  archivedAt       DateTime?       @db.Timestamptz(3)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
+  property         Property        @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  aliases          ProductAlias[]
+  stockMovements   StockMovement[]
+  farmRecords      FarmRecord[]
+
+  @@unique([propertyId, normalizedName])
+  @@index([propertyId, createdAt])
+  @@index([propertyId, archivedAt])
+  @@index([propertyId, expirationDate])
+}
+
+model ProductAlias {
+  id             String       @id @default(cuid())
+  propertyId     String
+  productId      String
+  name           String
+  normalizedName String
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  property       Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  product        StockProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, normalizedName])
+  @@index([productId])
+}
+
+model StockMovement {
+  id                  String            @id @default(cuid())
+  propertyId          String
+  productId           String
+  areaId              String?
+  farmRecordId        String?
+  type                StockMovementType
+  quantityChange      Decimal           @db.Decimal(18, 4)
+  unitSnapshot        String
+  balanceBefore       Decimal           @db.Decimal(18, 4)
+  balanceAfter        Decimal           @db.Decimal(18, 4)
+  createdByUserId     String?
+  performedByUserId   String?
+  source              RecordSource      @default(WEB)
+  reason              String?           @db.Text
+  occurredAt          DateTime           @default(now()) @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+  reversesMovementId  String?            @unique
+  property            Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  product             StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  area                Area?              @relation(fields: [areaId], references: [id], onDelete: Restrict)
+  farmRecord          FarmRecord?        @relation(fields: [farmRecordId], references: [id], onDelete: Restrict)
+  createdBy           User?              @relation("StockMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  performedBy         User?              @relation("StockMovementPerformedBy", fields: [performedByUserId], references: [id], onDelete: Restrict)
+  reversesMovement    StockMovement?     @relation("StockMovementReversal", fields: [reversesMovementId], references: [id], onDelete: Restrict)
+  reversedByMovement  StockMovement?     @relation("StockMovementReversal")
+
+  @@index([propertyId, createdAt])
+  @@index([productId, createdAt])
+  @@index([areaId, createdAt])
+  @@index([farmRecordId])
+  @@index([createdByUserId, createdAt])
+  @@index([performedByUserId, createdAt])
+}
+
+model FarmRecord {
+  id                  String          @id @default(cuid())
+  propertyId          String
+  areaId              String?
+  productId           String?
+  createdByUserId     String?
+  performedByUserId   String?
+  type                FarmRecordType
+  description         String          @db.Text
+  locationDescription String?
+  occurredAt          DateTime        @default(now()) @db.Timestamptz(3)
+  quantity            Decimal?        @db.Decimal(18, 4)
+  quantityUnit        String?
+  value               Decimal?        @db.Decimal(18, 2)
+  responsibleName     String?
+  productNameSnapshot String?
+  appliedDose         Decimal?        @db.Decimal(18, 4)
+  doseUnit            String?
+  harvest             String?
+  supplier            String?
+  productBatch        String?
+  technicalNote       String?         @db.Text
+  source              RecordSource    @default(WEB)
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+  property            Property        @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  area                Area?           @relation(fields: [areaId], references: [id], onDelete: Restrict)
+  product             StockProduct?   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  createdBy           User?           @relation("FarmRecordCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  performedBy         User?           @relation("FarmRecordPerformedBy", fields: [performedByUserId], references: [id], onDelete: Restrict)
+  stockMovements      StockMovement[]
+
+  @@index([propertyId, occurredAt])
+  @@index([areaId, occurredAt])
+  @@index([productId, occurredAt])
+  @@index([createdByUserId, occurredAt])
+  @@index([performedByUserId, occurredAt])
+}
+
+model AuditLog {
+  id          String       @id @default(cuid())
+  propertyId  String
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  source      RecordSource @default(WEB)
+  beforeData  Json?        @db.JsonB
+  afterData   Json?        @db.JsonB
+  metadata    Json?        @db.JsonB
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  property    Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  actor       User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+}

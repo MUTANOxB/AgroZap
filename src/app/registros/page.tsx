@@ -6,6 +6,7 @@ import {
   type Annotation,
   type AnnotationType,
 } from "@/context/AgroAppContext";
+import { getStockErrorMessage } from "@/services/estoque/errors";
 
 type AnnotationForm = Omit<
   Annotation,
@@ -136,7 +137,12 @@ export default function RegistrosPage() {
       const change = stockEntryTypes.includes(formData.type)
         ? stockQuantity
         : -stockQuantity;
-      atualizarQuantidadeProduto(selectedProduct.id, change);
+      try {
+        atualizarQuantidadeProduto(selectedProduct.id, change);
+      } catch (error) {
+        window.alert(getStockErrorMessage(error));
+        return;
+      }
     }
 
     const newAnnotation: Omit<Annotation, "id"> = {
