@@ -9,6 +9,8 @@ existirem identidade, permissões, validações e histórico confiável.
 - **Concluída:** o objetivo da etapa está disponível no fluxo principal.
 - **Parcial:** uma parte funciona, mas ainda há limitações conhecidas.
 - **Etapa atual:** está sendo preparada ou integrada agora.
+- **Em validação:** a estrutura foi implementada, mas a bateria final ainda
+  precisa confirmar o resultado completo.
 - **Planejada:** ainda não foi implementada.
 
 ## ETAPA 0 — Interface MVP
@@ -157,10 +159,10 @@ Entregas:
 - script restrito ao PostgreSQL local chamado `agrozap`, sem overrides de host
   ou banco na URL, para gerar senha temporária de desenvolvimento.
 
-A suíte implementada contém 8 testes unitários da Etapa 1, 16 testes unitários
-da Etapa 2 e 45 testes de integração: 37 cenários de domínio/banco e 8 guardas
-de segurança. A validação final aprovou 24/24 testes unitários, 45/45 de
-integração e 69/69 pelo agregador `test:all`.
+A suíte validada ao final da Etapa 2 contém 8 testes unitários em
+`test:stage1.1`, 17 em `test:stage2` e 45 testes de integração: 37 cenários de
+domínio/banco e 8 guardas de segurança. Isso corresponde a 25/25 testes
+unitários, 45/45 de integração e 70/70 pelo agregador `test:all`.
 
 Esta etapa conclui identidade, propriedade ativa e gestão de equipe no
 servidor. Ela não moveu áreas, anotações nem produtos da interface para o
@@ -170,6 +172,90 @@ Riscos residuais deliberadamente fora do escopo: rate limiting distribuído do
 login e revogação versionada de JWT após troca de senha. A revalidação do
 `User` ativo permanece implementada e bloqueia contas desativadas no requisito
 da Etapa 2.
+
+## ETAPA 2.1 — Blindagem multi-tenant entre propriedades
+
+**Status: concluída**
+
+Nesta fase, **Property é a fronteira de isolamento tenant do AgroZap**. A regra
+permanente para todas as funcionalidades novas é: um usuário operando na
+Property A não pode ler, relacionar nem alterar dados da Property B. Conhecer
+um ID de B nunca equivale a possuir autorização sobre ele.
+
+A migration incremental
+`20260807180000_stage_2_1_multi_tenant_isolation` acrescenta defesa relacional
+sem reescrever migrations anteriores. O desenho usa chaves estrangeiras
+compostas com `propertyId` e o ID relacionado para proteger oito vínculos:
+
+1. `AreaAlias` → `Area` da mesma Property;
+2. `ProductAlias` → `StockProduct` da mesma Property;
+3. `FarmRecord` → `Area` da mesma Property;
+4. `FarmRecord` → `StockProduct` da mesma Property;
+5. `StockMovement` → `StockProduct` da mesma Property;
+6. `StockMovement` → `Area` da mesma Property;
+7. `StockMovement` → `FarmRecord` da mesma Property;
+8. `StockMovement.reversesMovementId` → `StockMovement` da mesma Property.
+
+Os modelos referenciados expõem a identidade composta `(propertyId, id)` para
+que o PostgreSQL rejeite uma combinação A+B mesmo quando as duas FKs isoladas
+seriam válidas. A migration deve preservar dados válidos e falhar claramente
+se encontrar uma relação cruzada antiga; ela não move nem apaga dados para
+escolher uma propriedade arbitrariamente.
+
+A `propertyId` de `Area`, `StockProduct`, `FarmRecord` e `StockMovement` é
+identidade estrutural e deve ser tratada como imutável após a criação. As oito
+FKs compostas usam `ON UPDATE RESTRICT`, também declarado no schema Prisma,
+para impedir reparenting automático quando uma chave referenciada possui
+dependentes. Uma eventual correção futura de tenant deverá ser uma operação
+administrativa explícita, auditada e desenhada especificamente para isso, não
+um update comum ou efeito cascata.
+
+`RESTRICT` não torna o campo absolutamente imutável no PostgreSQL: uma entidade
+isolada ainda pode teoricamente receber `UPDATE` direto, e SQL coordenado pode
+tentar alterar a `propertyId` junto das referências. A garantia também depende
+dos services e das permissões. Triggers, RLS e essa operação administrativa não
+foram implementados na Etapa 2.1.
+
+`User` continua global e pode participar de várias propriedades por
+`PropertyMember`. `createdByUserId`, `performedByUserId` e
+`AuditLog.actorUserId` também continuam apontando para identidades globais: o
+histórico não exige que o ator permaneça membro para sempre. Já
+`AuditLog.entityId` é uma referência polimórfica acompanhada de `entityType` e
+deliberadamente não recebe FK para uma única tabela; sua coerência permanece
+responsabilidade do service e dos testes.
+
+O fluxo de autoridade continua sendo sessão autenticada, `User` ativo,
+Property candidata revalidada, `PropertyMember` atual e então
+`actorUserId`/`propertyId`/papel derivados no servidor. O navegador não fornece
+essas três informações como autoridade. A única exceção de entrada é o
+`propertyId` candidato da tela de seleção, que só vira contexto depois da
+revalidação.
+
+Decisões explícitas desta etapa:
+
+- `Organization` pode futuramente agrupar várias propriedades para empresa,
+  família, cobrança ou administração central, mas foi deliberadamente adiada;
+- PostgreSQL RLS **não foi implementado**; ele exige desenho próprio de
+  conexão, sessão, transação e pooling antes de ser adotado;
+- `User.phone` permanece globalmente único porque identifica uma pessoa
+  global;
+- `Property.slug` permanece um identificador globalmente único. Nomes de
+  propriedades podem se repetir; slugs futuros devem receber desambiguação sem
+  proibir duas propriedades chamadas, por exemplo, “Fazenda Santa Maria”;
+- a separação por chave no `localStorage` evita mistura na navegação normal,
+  mas não oferece confidencialidade entre usuários que compartilham o mesmo
+  navegador e perfil. Esse risco residual permanece enquanto os cadastros
+  rurais forem locais;
+- os services rurais ainda não estão expostos por Server Actions ou API. Antes
+  da Etapa 3, cada escrita deverá exigir a capability adequada e um ator
+  confiável derivado no servidor; ator nulo não poderá virar um bypass web.
+
+O baseline validado antes da Etapa 2.1 é: `test:stage1.1` 8/8,
+`test:stage2` 17/17, 45/45 testes de integração, 25/25 unitários e 70/70 em
+`test:all`. Com os treze cenários PostgreSQL adicionais — nove de isolamento e
+quatro de regressão contra reparenting —, a validação final da Etapa 2.1
+aprovou 58/58 testes de integração e 83/83 em `test:all`, mantendo 25/25
+unitários. `db:validate`, `db:generate`, typecheck, lint e build também passaram.
 
 ## ETAPA 3 — API real e substituição do localStorage
 
@@ -188,7 +274,8 @@ Objetivo:
 
 Esta etapa termina quando atualizar duas sessões diferentes mostra o mesmo dado
 da propriedade e o `localStorage` deixa de ser a fonte dos cadastros rurais.
-Ela está apenas recomendada neste roadmap; não foi iniciada na Etapa 2.
+Ela está apenas recomendada neste roadmap; não foi iniciada na Etapa 2 nem na
+Etapa 2.1.
 
 ## ETAPA 4 — WhatsApp por texto e identificação por telefone
 

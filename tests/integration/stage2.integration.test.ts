@@ -434,6 +434,41 @@ test("CASO 16 — remover membro preserva User e membership em outra Property", 
       role: PropertyRole.VIEWER,
     },
   });
+  const historicalProductName = `Produto histórico externo ${token().slice(0, 8)}`;
+  const historicalProduct = await db.stockProduct.create({
+    data: {
+      propertyId: otherProperty.id,
+      name: historicalProductName,
+      normalizedName: historicalProductName.toLocaleLowerCase("pt-BR"),
+      category: "OTHER",
+      quantity: new Prisma.Decimal(1),
+      unit: "un",
+    },
+  });
+  const historicalRecord = await db.farmRecord.create({
+    data: {
+      propertyId: otherProperty.id,
+      createdByUserId: team.users[1].id,
+      type: FarmRecordType.NOTE,
+      description: "Histórico preservado na outra propriedade",
+    },
+  });
+  const historicalMovement = await db.stockMovement.create({
+    data: {
+      propertyId: otherProperty.id,
+      productId: historicalProduct.id,
+      farmRecordId: historicalRecord.id,
+      type: StockMovementType.ADJUSTMENT,
+      quantityChange: new Prisma.Decimal(1),
+      productNameSnapshot: historicalProduct.name,
+      unitSnapshot: historicalProduct.unit,
+      balanceBefore: new Prisma.Decimal(0),
+      balanceAfter: new Prisma.Decimal(1),
+      createdByUserId: team.users[1].id,
+      source: RecordSource.WEB,
+      reason: "Histórico anterior à remoção em outra propriedade",
+    },
+  });
 
   await removeMember({
     propertyId: team.property.id,
@@ -454,6 +489,15 @@ test("CASO 16 — remover membro preserva User e membership em outra Property", 
     }),
     1,
   );
+  const [persistedRecord, persistedMovement] = await Promise.all([
+    db.farmRecord.findUniqueOrThrow({ where: { id: historicalRecord.id } }),
+    db.stockMovement.findUniqueOrThrow({ where: { id: historicalMovement.id } }),
+  ]);
+  assert.equal(persistedRecord.propertyId, otherProperty.id);
+  assert.equal(persistedRecord.createdByUserId, team.users[1].id);
+  assert.equal(persistedMovement.propertyId, otherProperty.id);
+  assert.equal(persistedMovement.farmRecordId, historicalRecord.id);
+  assert.equal(persistedMovement.createdByUserId, team.users[1].id);
 });
 
 test("CASO 17 — remoção de membership preserva FarmRecord e StockMovement históricos", async () => {
@@ -551,13 +595,20 @@ test("CASO 18 — add/change/remove auditam ator e estados na mesma membership",
   });
 });
 
-test("CASO 19 — ator da Property A não modifica memberships da Property B", async () => {
+test("CASO 19 — ator da Property A não lê nem modifica memberships da Property B", async () => {
   const [teamA, teamB] = await Promise.all([
     createTeam([PropertyRole.OWNER, PropertyRole.MANAGER]),
     createTeam([PropertyRole.OWNER, PropertyRole.EMPLOYEE]),
   ]);
   const standalone = await createUser();
 
+  await expectTeamError(
+    listPropertyTeam({
+      propertyId: teamB.property.id,
+      actorUserId: teamA.users[0].id,
+    }),
+    "PROPERTY_ACCESS_DENIED",
+  );
   await expectTeamError(
     changeMemberRole({
       propertyId: teamB.property.id,

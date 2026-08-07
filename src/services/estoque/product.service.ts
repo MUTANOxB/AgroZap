@@ -183,7 +183,6 @@ export function createStockProduct(
           technicalNote: command.technicalNote?.trim() || null,
           aliases: {
             create: aliases.map((alias) => ({
-              propertyId: command.propertyId,
               ...alias,
             })),
           },

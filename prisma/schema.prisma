@@ -136,6 +136,7 @@ model Area {
   farmRecords           FarmRecord[]
 
   @@unique([propertyId, normalizedName])
+  @@unique([propertyId, id])
   @@index([propertyId, createdAt])
   @@index([propertyId, archivedAt])
 }
@@ -148,7 +149,7 @@ model AreaAlias {
   normalizedName String
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   property       Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  area           Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  area           Area     @relation(fields: [propertyId, areaId], references: [propertyId, id], onDelete: Cascade, onUpdate: Restrict)
 
   @@unique([propertyId, normalizedName])
   @@index([areaId])
@@ -180,6 +181,7 @@ model StockProduct {
   farmRecords      FarmRecord[]
 
   @@unique([propertyId, normalizedName])
+  @@unique([propertyId, id])
   @@index([propertyId, createdAt])
   @@index([propertyId, archivedAt])
   @@index([propertyId, expirationDate])
@@ -193,7 +195,7 @@ model ProductAlias {
   normalizedName String
   createdAt      DateTime     @default(now()) @db.Timestamptz(3)
   property       Property     @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  product        StockProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product        StockProduct @relation(fields: [propertyId, productId], references: [propertyId, id], onDelete: Cascade, onUpdate: Restrict)
 
   @@unique([propertyId, normalizedName])
   @@index([productId])
@@ -218,16 +220,18 @@ model StockMovement {
   reason              String?           @db.Text
   occurredAt          DateTime           @default(now()) @db.Timestamptz(3)
   createdAt           DateTime           @default(now()) @db.Timestamptz(3)
-  reversesMovementId  String?            @unique
+  reversesMovementId  String?
   property            Property           @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  product             StockProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
-  area                Area?              @relation(fields: [areaId], references: [id], onDelete: Restrict)
-  farmRecord          FarmRecord?        @relation(fields: [farmRecordId], references: [id], onDelete: Restrict)
+  product             StockProduct       @relation(fields: [propertyId, productId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
+  area                Area?              @relation(fields: [propertyId, areaId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
+  farmRecord          FarmRecord?        @relation(fields: [propertyId, farmRecordId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
   createdBy           User?              @relation("StockMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   performedBy         User?              @relation("StockMovementPerformedBy", fields: [performedByUserId], references: [id], onDelete: Restrict)
-  reversesMovement    StockMovement?     @relation("StockMovementReversal", fields: [reversesMovementId], references: [id], onDelete: Restrict)
+  reversesMovement    StockMovement?     @relation("StockMovementReversal", fields: [propertyId, reversesMovementId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
   reversedByMovement  StockMovement?     @relation("StockMovementReversal")
 
+  @@unique([propertyId, id])
+  @@unique([propertyId, reversesMovementId])
   @@index([propertyId, createdAt])
   @@index([productId, createdAt])
   @@index([areaId, createdAt])
@@ -263,12 +267,13 @@ model FarmRecord {
   createdAt           DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
   property            Property        @relation(fields: [propertyId], references: [id], onDelete: Restrict)
-  area                Area?           @relation(fields: [areaId], references: [id], onDelete: Restrict)
-  product             StockProduct?   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  area                Area?           @relation(fields: [propertyId, areaId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
+  product             StockProduct?   @relation(fields: [propertyId, productId], references: [propertyId, id], onDelete: Restrict, onUpdate: Restrict)
   createdBy           User?           @relation("FarmRecordCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   performedBy         User?           @relation("FarmRecordPerformedBy", fields: [performedByUserId], references: [id], onDelete: Restrict)
   stockMovements      StockMovement[]
 
+  @@unique([propertyId, id])
   @@index([propertyId, occurredAt])
   @@index([areaId, occurredAt])
   @@index([productId, occurredAt])

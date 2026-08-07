@@ -26,7 +26,7 @@ const {
 const { db } = prismaLib;
 const { registerStockMovement, reverseStockMovement } = stockService;
 const { StockDomainError } = stockErrors;
-const { createFarmRecord } = recordService;
+const { createFarmRecord, FarmRecordDomainError } = recordService;
 const { createStockProduct } = productService;
 const { createArea } = areaService;
 const { createStockScenario, createTenant } = fixtures;
@@ -50,6 +50,21 @@ async function expectStockError(
   });
 }
 
+async function expectFarmRecordError(
+  operation: Promise<unknown>,
+  acceptedCodes: string | string[],
+) {
+  const codes = Array.isArray(acceptedCodes) ? acceptedCodes : [acceptedCodes];
+  await assert.rejects(operation, (error: unknown) => {
+    assert.ok(error instanceof FarmRecordDomainError);
+    assert.ok(
+      codes.includes(error.code),
+      `Código recebido: ${error.code}; esperados: ${codes.join(", ")}`,
+    );
+    return true;
+  });
+}
+
 test("migrations do zero e duas execuções do seed deixam a fundação íntegra", async () => {
   const migrations = await db.$queryRaw<
     Array<{
@@ -65,6 +80,7 @@ test("migrations do zero e duas execuções do seed deixam a fundação íntegra
       "20260807090000_initial_domain_foundation",
       "20260807120000_stage_1_1_hardening",
       "20260807150000_stage_2_authentication",
+      "20260807180000_stage_2_1_multi_tenant_isolation",
     ],
   );
   assert.ok(migrations.every((migration) => migration.finished_at !== null));
@@ -730,11 +746,22 @@ test("duas reversões concorrentes efetivam somente uma correção", async () =>
   );
 });
 
-test("services impedem usar produto ou movimento de outra propriedade", async () => {
+test("services impedem usar produto, área, registro ou movimento de outra propriedade", async () => {
   const [scenarioA, scenarioB] = await Promise.all([
-    createStockScenario({ productName: "Produto A" }),
-    createStockScenario({ productName: "Produto B" }),
+    createStockScenario({ productName: "Produto A", areaName: "Área A" }),
+    createStockScenario({ productName: "Produto B", areaName: "Área B" }),
   ]);
+  assert.ok(scenarioA.area);
+  assert.ok(scenarioB.area);
+
+  const recordB = await createFarmRecord({
+    propertyId: scenarioB.property.id,
+    areaId: scenarioB.area.id,
+    productId: scenarioB.product.id,
+    createdByUserId: scenarioB.users[0].id,
+    type: FarmRecordType.NOTE,
+    description: "Registro exclusivo da propriedade B",
+  });
 
   await expectStockError(
     registerStockMovement({
@@ -745,6 +772,60 @@ test("services impedem usar produto ou movimento de outra propriedade", async ()
       createdByUserId: scenarioA.users[0].id,
     }),
     "PRODUCT_NOT_FOUND",
+  );
+  await expectStockError(
+    registerStockMovement({
+      propertyId: scenarioA.property.id,
+      productId: scenarioA.product.id,
+      areaId: scenarioB.area.id,
+      type: StockMovementType.OUT,
+      amount: "1",
+      createdByUserId: scenarioA.users[0].id,
+    }),
+    "RELATED_ENTITY_NOT_FOUND",
+  );
+  await expectStockError(
+    registerStockMovement({
+      propertyId: scenarioA.property.id,
+      productId: scenarioA.product.id,
+      farmRecordId: recordB.id,
+      type: StockMovementType.OUT,
+      amount: "1",
+      createdByUserId: scenarioA.users[0].id,
+    }),
+    "RELATED_ENTITY_NOT_FOUND",
+  );
+  await expectStockError(
+    registerStockMovement({
+      propertyId: scenarioA.property.id,
+      productId: scenarioA.product.id,
+      type: StockMovementType.OUT,
+      amount: "1",
+      createdByUserId: scenarioB.users[0].id,
+    }),
+    "USER_NOT_ACTIVE_PROPERTY_MEMBER",
+  );
+  await expectFarmRecordError(
+    createFarmRecord({
+      propertyId: scenarioA.property.id,
+      areaId: scenarioB.area.id,
+      productId: scenarioA.product.id,
+      createdByUserId: scenarioA.users[0].id,
+      type: FarmRecordType.NOTE,
+      description: "Tentativa de usar área da propriedade B",
+    }),
+    "RELATED_ENTITY_NOT_FOUND",
+  );
+  await expectFarmRecordError(
+    createFarmRecord({
+      propertyId: scenarioA.property.id,
+      areaId: scenarioA.area.id,
+      productId: scenarioB.product.id,
+      createdByUserId: scenarioA.users[0].id,
+      type: FarmRecordType.NOTE,
+      description: "Tentativa de usar produto da propriedade B",
+    }),
+    "RELATED_ENTITY_NOT_FOUND",
   );
   const movementB = await registerStockMovement({
     propertyId: scenarioB.property.id,
@@ -764,7 +845,14 @@ test("services impedem usar produto ou movimento de outra propriedade", async ()
   );
 
   assert.equal(await db.stockMovement.count({ where: { propertyId: scenarioA.property.id } }), 0);
+  assert.equal(await db.farmRecord.count({ where: { propertyId: scenarioA.property.id } }), 0);
   assert.equal(await db.auditLog.count({ where: { propertyId: scenarioA.property.id } }), 0);
+  assert.ok(await db.farmRecord.findUnique({ where: { id: recordB.id } }));
+  assert.equal(
+    (await db.stockProduct.findUniqueOrThrow({ where: { id: scenarioA.product.id } }))
+      .quantity.toString(),
+    "10",
+  );
   assert.equal(
     (await db.stockProduct.findUniqueOrThrow({ where: { id: scenarioB.product.id } }))
       .quantity.toString(),

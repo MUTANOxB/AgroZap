@@ -617,7 +617,9 @@ Os principais modelos são:
 | `AuditLog` | Guarda a trilha técnica de uma operação importante. |
 
 Áreas, produtos, movimentos, anotações e auditorias possuem `propertyId`. Isso
-impede que a arquitetura dependa de uma única fazenda fixa.
+impede que a arquitetura dependa de uma única fazenda fixa. Na Etapa 2.1,
+`Property` também é formalizada como a fronteira de isolamento tenant: uma
+relação de A não pode apontar para uma entidade de B.
 
 ### `prisma.config.ts`
 
@@ -636,6 +638,13 @@ A migration é o roteiro SQL que cria e altera a estrutura do PostgreSQL. A
 migration inicial cria enums, tabelas, índices, chaves, relações e constraints.
 A migration da Etapa 1.1 acrescenta e preenche os snapshots históricos. As duas
 foram aplicadas em ordem desde um banco vazio durante a Etapa 1.2.
+
+A migration de autenticação da Etapa 2 acrescenta `User.passwordHash`. A
+migration incremental
+`20260807180000_stage_2_1_multi_tenant_isolation` adiciona as FKs compostas que
+obrigam relações tenant-scoped a reutilizar a mesma `propertyId`. Ela não
+reescreve as migrations anteriores e deve falhar, sem apagar nem mover dados,
+caso encontre uma relação cruzada antiga.
 
 Ela não é a mesma coisa que o seed:
 
@@ -841,7 +850,10 @@ obrigatório, nem estoque alterado sem a anotação correspondente.
 Esse isolamento e essa proteção não transformam o `localStorage` em banco. As
 áreas, anotações e produtos da interface não criam movimento, auditoria ou
 transação PostgreSQL. Usuário, propriedade e equipe, por outro lado, já usam o
-banco pela arquitetura da Etapa 2.
+banco pela arquitetura da Etapa 2. Além disso, todas as chaves da mesma origem
+ficam disponíveis ao mesmo perfil de navegador: separar a chave por Property
+evita mistura na navegação normal, mas não protege confidencialidade entre
+usuários de um dispositivo compartilhado.
 
 ## 16. Dados locais, seed e banco são fontes diferentes
 
@@ -986,8 +998,8 @@ brasileiros aceitos são convertidos para `+55` seguido de DDD e número.
 
 ## 21. Como funciona a validação PostgreSQL atual
 
-O runner criado na Etapa 1.2 também executa os cenários da Etapa 2. Os testes
-reais ficam em `tests/integration/`:
+O runner criado na Etapa 1.2 também executa os cenários das Etapas 2 e 2.1. Os
+testes reais ficam em `tests/integration/`:
 
 - `run.ts`: executa o preflight de segurança, prepara o banco, aplica
   migrations, executa o seed duas vezes, compara as identidades e inicia os
@@ -1000,7 +1012,10 @@ reais ficam em `tests/integration/`:
 - `foundation.integration.test.ts`: contém dezessete cenários de domínio e
   PostgreSQL real;
 - `stage2.integration.test.ts`: cobre autenticação, propriedade ativa, equipe,
-  concorrência, auditoria e isolamento da Etapa 2.
+  concorrência, auditoria e isolamento da Etapa 2;
+- `stage2-1-multitenancy.integration.test.ts`: tenta diretamente as oito
+  relações cross-property, confirma o grafo equivalente dentro da mesma
+  Property e cobre quatro tentativas de reparenting por `propertyId`.
 
 ### Proteção do banco de desenvolvimento
 
@@ -1052,13 +1067,19 @@ consulta o PostgreSQL para conferir o estado confirmado. A suíte cobre:
   permitidas;
 - reversão duplicada, reversão de reversão e duas reversões concorrentes;
 - isolamento entre propriedades e escopo dos aliases;
+- recusa de reparenting automático de área, produto, registro e movimento;
 - `CHECK constraints` como última barreira contra saldos e movimentos
   inválidos.
 
-A suíte implementada totaliza 45 casos de integração: 37 de domínio/banco
-(fundação e Etapa 2) e 8 guardas de segurança. `test:stage1.1` contém 8 testes
-unitários, e `test:stage2`, 16. A validação final aprovou 24/24 testes unitários,
-45/45 de integração e 69/69 pelo agregador `test:all`.
+A suíte validada antes da Etapa 2.1 totaliza 45 casos de integração: 37 de
+domínio/banco (fundação e Etapa 2) e 8 guardas de segurança.
+`test:stage1.1` contém 8 testes unitários, e `test:stage2`, 17. A validação final
+da Etapa 2 aprovou 25/25 testes unitários, 45/45 de integração e 70/70 pelo
+agregador `test:all`.
+
+Os treze cenários adicionais da Etapa 2.1 elevaram a suíte para 58/58 testes de
+integração e 83/83 em `test:all`, mantendo 25/25 unitários. `db:validate`,
+`db:generate`, typecheck, lint e build também passaram.
 
 ### Regressão de quantidade zero
 
@@ -1154,3 +1175,153 @@ versionada dos JWTs depois de uma troca de senha. Esses controles exigem uma
 decisão de implantação posterior. A revalidação de `User.deactivatedAt` em cada
 contexto protegido já bloqueia contas desativadas e continua sendo a garantia
 exigida nesta etapa.
+
+## 23. Mapa da Etapa 2.1
+
+### A fronteira tenant
+
+Na arquitetura atual, **Property é a fronteira de isolamento tenant do
+AgroZap**. Toda consulta ou escrita persistente tenant-scoped deve carregar uma
+`propertyId`, e toda entidade relacionada precisa pertencer à mesma Property.
+A regra de revisão para todas as etapas futuras é:
+
+```text
+User + Property A
+        ↓
+não lê, não relaciona e não altera
+        ↓
+dados da Property B
+```
+
+Conhecer um CUID de produto, área, registro, movimento ou membership de B não
+é autorização. O caminho de autoridade permanece:
+
+```text
+browser envia somente dados necessários
+        ↓
+Auth.js identifica o User
+        ↓
+requireCurrentUser revalida o User ativo
+        ↓
+requireActivePropertyContext revalida Property + PropertyMember
+        ↓
+servidor deriva actorUserId + propertyId + papel/capabilities
+        ↓
+service
+        ↓
+PostgreSQL
+```
+
+Na seleção, o `propertyId` do formulário é apenas candidato. As ações de equipe
+não aceitam `actorUserId`, `actorRole` nem `propertyId` do navegador como
+autoridade; elas os derivam novamente no servidor.
+
+### Oito relações protegidas no PostgreSQL
+
+A migration
+`prisma/migrations/20260807180000_stage_2_1_multi_tenant_isolation/migration.sql`
+usa chaves estrangeiras compostas. Os modelos de destino oferecem unicidade em
+`(propertyId, id)`, e a FK inclui a Property nos dois lados:
+
+| Origem | Destino exigido na mesma Property |
+| --- | --- |
+| `AreaAlias(propertyId, areaId)` | `Area(propertyId, id)` |
+| `ProductAlias(propertyId, productId)` | `StockProduct(propertyId, id)` |
+| `FarmRecord(propertyId, areaId)` | `Area(propertyId, id)` |
+| `FarmRecord(propertyId, productId)` | `StockProduct(propertyId, id)` |
+| `StockMovement(propertyId, productId)` | `StockProduct(propertyId, id)` |
+| `StockMovement(propertyId, areaId)` | `Area(propertyId, id)` |
+| `StockMovement(propertyId, farmRecordId)` | `FarmRecord(propertyId, id)` |
+| `StockMovement(propertyId, reversesMovementId)` | `StockMovement(propertyId, id)` |
+
+Isso impede que duas referências individualmente existentes sejam combinadas
+como Property A + entidade da Property B. Relações opcionais continuam
+opcionais, mas, quando preenchidas, precisam respeitar a combinação composta.
+
+### propertyId como identidade estrutural
+
+A `propertyId` de `Area`, `StockProduct`, `FarmRecord` e `StockMovement` faz
+parte da identidade estrutural da entidade e deve ser tratada como imutável
+após a criação. Mudar esse valor não é uma edição comum: seria mover o dado
+entre fronteiras tenant. Uma eventual correção futura deverá ser uma operação
+administrativa explícita, auditada e projetada especificamente para isso.
+
+Por esse motivo, as oito relações compostas declaram `onUpdate: Restrict` no
+Prisma e `ON UPDATE RESTRICT` na migration. A ação preserva os comportamentos
+`onDelete` existentes e impede que a atualização de uma chave referenciada
+com dependentes propague automaticamente outra `propertyId` para as linhas
+filhas.
+
+`RESTRICT` é uma barreira importante, mas não cria imutabilidade absoluta no
+PostgreSQL. Uma entidade sem dependentes ainda pode teoricamente receber um
+`UPDATE` direto, e SQL coordenado pode tentar alterar simultaneamente a
+`propertyId` e as referências envolvidas. A regra continua dependendo também
+da arquitetura dos services e das permissões de banco. A Etapa 2.1 não criou
+trigger, RLS nem uma operação administrativa de reparenting.
+
+A migration é incremental. Ela não altera migrations antigas e não tenta
+“consertar” corrupção escolhendo uma fazenda: se houver dado cruzado anterior,
+a criação da constraint deve falhar claramente.
+
+### Entidades globais e exceção polimórfica
+
+`User` não pertence exclusivamente a uma Property. A pessoa é global e se liga
+a uma ou várias propriedades por `PropertyMember`; o papel pode mudar em cada
+vínculo. Da mesma forma, `createdByUserId`, `performedByUserId` e
+`AuditLog.actorUserId` guardam atores globais. Remover uma membership atual não
+apaga nem invalida o histórico de outra Property ou a autoria anterior.
+
+`AuditLog.entityId` é deliberadamente polimórfico. Junto de `entityType`, ele
+pode descrever `Area`, `StockProduct`, `StockMovement`, `FarmRecord` ou
+`PropertyMember`, portanto não existe uma única tabela de destino para uma FK
+composta. Os services e testes precisam manter esse identificador coerente com
+a `propertyId` do log.
+
+### Identificadores globais
+
+- `User.phone` permanece globalmente único, pois identifica a pessoa global;
+- `Property.slug` permanece um identificador globalmente único da Property;
+- `Property.name` pode se repetir. Duas “Fazenda Santa Maria” são válidas, e
+  uma futura geração de slug deverá desambiguá-las sem proibir o mesmo nome.
+
+### O que não foi implementado
+
+`Organization` foi deliberadamente adiada. No futuro, ela poderá agrupar
+Properties de uma empresa ou família e concentrar cobrança ou administração,
+mas o modelo não foi antecipado.
+
+PostgreSQL RLS **não foi implementado**. A proteção desta etapa usa autoridade
+no servidor, services, FKs/constraints e testes reais. RLS só deve ser avaliado
+depois de projetar contexto de conexão/sessão, transações e pooling com Prisma.
+
+A Etapa 2.1 também não criou API rural, WhatsApp, IA, billing nem qualquer parte
+da Etapa 3.
+
+### Services rurais e ponte local
+
+`area.service.ts`, `product.service.ts`, `farm-record.service.ts` e
+`stock-movement.service.ts` já filtram IDs relacionados pela Property, mas
+ainda não estão expostos por Server Actions ou Route Handlers usados pelas
+telas. Antes da Etapa 3, cada escrita deverá receber um ator confiável derivado
+no servidor e exigir a capability correspondente. Valores como `propertyId`,
+papel ou ator nulo não podem virar autoridade vinda do browser.
+
+O `AgroAppContext` continua usando
+`agrozap-mvp-data:<propertyId>`. Essa chave impede que a navegação normal misture
+duas Properties, mas `localStorage` pertence ao perfil inteiro do navegador.
+Em dispositivo compartilhado, outro usuário pode enumerar dados locais de uma
+Property aberta anteriormente. Esse risco residual só termina com uma migração
+segura do armazenamento; ela não faz parte da Etapa 2.1.
+
+### Testes validados
+
+O baseline validado é `test:stage1.1` 8/8, `test:stage2` 17/17, 25/25 testes
+unitários, 45/45 de integração e 70/70 em `test:all`. Os treze casos PostgreSQL
+da Etapa 2.1 incluem nove cenários de relações A×B e quatro regressões de
+reparenting. Eles preservam relações dentro de A, mantêm um mesmo User em A e
+B, confirmam que remover uma membership não afeta a outra e provam que não há
+propagação automática de `propertyId` por cascata.
+
+Com esses casos, a validação final aprovou 58/58 testes de integração e 83/83
+em `test:all`, mantendo 25/25 unitários. `db:validate`, `db:generate`,
+typecheck, lint e build também passaram.

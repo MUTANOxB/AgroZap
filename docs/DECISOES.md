@@ -468,10 +468,16 @@ do service para o teste.
 as execuções e usa fixtures próprias para os cenários de domínio.
 
 A Etapa 1.2 terminou com 8 de 8 testes unitários e 25 de 25 testes de integração
-aprovados. Depois da Etapa 2, a suíte contém 8 testes unitários da Etapa 1, 16
-da Etapa 2 e 45 testes de integração, divididos em 37 cenários de domínio/banco
-e 8 guardas de segurança. A validação final aprovou 24/24 testes unitários,
-45/45 de integração e 69/69 pelo agregador `test:all`.
+aprovados; essa contagem histórica permanece inalterada. Depois da Etapa 2, a
+suíte contém 8 testes unitários em `test:stage1.1`, 17 em `test:stage2` e 45
+testes de integração, divididos em 37 cenários de domínio/banco e 8 guardas de
+segurança. A validação final da Etapa 2 aprovou 25/25 testes unitários, 45/45 de
+integração e 70/70 pelo agregador `test:all`.
+
+A Etapa 2.1 acrescenta treze cenários PostgreSQL: nove de isolamento A×B e
+quatro de regressão contra reparenting automático. A bateria final aprovou
+58/58 testes de integração e 83/83 em `test:all`, mantendo 25/25 unitários,
+além de `db:validate`, `db:generate`, typecheck, lint e build.
 
 ## 33. Auth.js Credentials com sessão JWT, sem adapter
 
@@ -577,7 +583,10 @@ global misturaria dados locais de escopos diferentes.
 para a primeira propriedade aberta após a mudança. Um marcador guarda qual
 propriedade recebeu a migração, e o legado não é apagado. Essa ponte não envia
 áreas, anotações nem produtos ao PostgreSQL; importação ou descarte definitivo
-pertence à Etapa 3.
+pertence à Etapa 3. A separação por chave evita mistura na navegação normal,
+mas `localStorage` continua compartilhado por todos os usuários do mesmo perfil
+de navegador. Ele não é uma fronteira de confidencialidade em dispositivo
+compartilhado, e esse risco residual precisa permanecer explícito.
 
 ## 40. Proxy e Context de cliente não são fronteiras de segurança
 
@@ -608,3 +617,139 @@ e planejar uma versão de sessão ou credencial se precisar invalidar todos os
 JWTs imediatamente após troca de senha. Enquanto isso, a consulta do `User`
 ativo em cada contexto protegido já revoga o acesso de contas desativadas,
 atendendo ao requisito desta etapa.
+
+## 42. Property é a fronteira tenant nesta fase
+
+**Decisão:** tratar cada `Property` como a fronteira operacional de isolamento
+multi-tenant do AgroZap.
+
+**Por quê:** propriedades de famílias ou empresas diferentes compartilham a
+mesma aplicação e o mesmo banco. Um identificador conhecido não pode funcionar
+como autorização para atravessar essa fronteira.
+
+**Consequência:** toda funcionalidade tenant-scoped nova deve provar em testes
+que um usuário operando na Property A não consegue ler, relacionar nem alterar
+dados da Property B. Sessão autenticada, Property ativa revalidada,
+autorização no service, `propertyId` nos dados e constraints do PostgreSQL são
+camadas complementares, não alternativas.
+
+## 43. Relações tenant-scoped usam oito FKs compostas
+
+**Decisão:** a migration
+`20260807180000_stage_2_1_multi_tenant_isolation` protege com FKs compostas as
+relações abaixo:
+
+1. `AreaAlias(propertyId, areaId)` → `Area(propertyId, id)`;
+2. `ProductAlias(propertyId, productId)` → `StockProduct(propertyId, id)`;
+3. `FarmRecord(propertyId, areaId)` → `Area(propertyId, id)`;
+4. `FarmRecord(propertyId, productId)` → `StockProduct(propertyId, id)`;
+5. `StockMovement(propertyId, productId)` →
+   `StockProduct(propertyId, id)`;
+6. `StockMovement(propertyId, areaId)` → `Area(propertyId, id)`;
+7. `StockMovement(propertyId, farmRecordId)` →
+   `FarmRecord(propertyId, id)`;
+8. `StockMovement(propertyId, reversesMovementId)` →
+   `StockMovement(propertyId, id)`.
+
+**Por quê:** duas FKs independentes provariam apenas que a Property existe e
+que a entidade relacionada existe. Elas não provariam que ambas pertencem ao
+mesmo tenant. A referência composta exige a combinação `(propertyId, id)`.
+
+**Consequência:** os modelos de destino possuem unicidade explícita em
+`(propertyId, id)`. A migration é incremental, preserva dados válidos e deve
+falhar diante de corrupção antiga; não pode mover, renomear ou apagar registros
+para fabricar consistência. Migrations anteriores permanecem imutáveis.
+
+As oito relações declaram `onUpdate: Restrict` no schema Prisma e
+`ON UPDATE RESTRICT` no PostgreSQL, preservando suas ações `onDelete`. Assim,
+uma mudança na chave composta referenciada não propaga automaticamente uma
+nova `propertyId` às linhas dependentes.
+
+## 44. User e atores históricos continuam globais
+
+**Decisão:** manter `User` como identidade global e usar `PropertyMember` para
+cada participação local. Manter também `createdByUserId`, `performedByUserId` e
+`AuditLog.actorUserId` como referências ao `User` global.
+
+**Por quê:** a mesma pessoa pode trabalhar legitimamente nas Properties A, B e
+C. Além disso, remover uma membership atual não pode apagar nem invalidar a
+autoria de um fato histórico.
+
+**Consequência:** não existe FK permanente obrigando atores históricos a
+continuarem `PropertyMember`. A membership é verificada no momento de uma nova
+operação; as capabilities precisam ser aplicadas pelo boundary/service
+autorizador correspondente. O registro histórico preserva a identidade global
+depois disso.
+
+`AuditLog.entityId` também não recebe FK composta: ele é polimórfico e seu
+`entityType` pode apontar conceitualmente para tabelas diferentes. Services e
+testes continuam responsáveis por manter esse par coerente com a Property do
+log.
+
+## 45. Organization e RLS foram deliberadamente adiadas
+
+**Decisão:** não criar `Organization` e não habilitar PostgreSQL Row Level
+Security na Etapa 2.1.
+
+**Por quê:** uma `Organization` futura poderá agrupar várias Properties para
+empresa, família, cobrança e administração central, mas essa necessidade ainda
+não foi modelada. RLS exige um desenho consciente de conexão, contexto por
+sessão/transação e integração com Prisma e pooling; uma ativação parcial daria
+falsa sensação de segurança.
+
+**Consequência:** Property continua sendo o tenant operacional. A proteção
+atual usa autorização server-side, services, FKs/constraints e testes A×B. RLS
+**não está implementado** e só poderá ser adotado em uma etapa própria.
+
+## 46. Telefone e slug são identidades globais com semânticas diferentes
+
+**Decisão:** manter `User.phone` globalmente único e tratar `Property.slug`
+como identificador globalmente único da propriedade. `Property.name` não é uma
+identidade e pode se repetir.
+
+**Por quê:** telefone identifica a pessoa global que pode possuir várias
+memberships. O slug identifica uma Property específica; duas fazendas podem
+legitimamente se chamar “Fazenda Santa Maria”.
+
+**Consequência:** nomes iguais não devem ser proibidos. Ao gerar slugs, uma
+camada futura deverá desambiguá-los de forma estável sem redesenhar URLs nesta
+etapa.
+
+## 47. Services rurais precisam de capability e ator confiável antes da Etapa 3
+
+**Decisão:** não expor os services rurais atuais diretamente por Server Action
+ou API até que cada escrita derive um ator confiável no servidor e aplique a
+capability adequada.
+
+**Por quê:** os services já validam o escopo de IDs relacionados, mas ainda
+recebem `propertyId` e atores como parâmetros internos e não aplicam todas as
+capacidades da política da Etapa 2. Um ator nulo legítimo para operação interna
+não pode virar bypass em um fluxo web.
+
+**Consequência:** antes de iniciar a persistência rural da Etapa 3, a camada de
+servidor deve revalidar sessão, Property ativa e `PropertyMember`, derivar
+`actorUserId`/`propertyId`/papel, exigir `CREATE_AREA`, `CREATE_PRODUCT`,
+`CREATE_RECORD`, `MOVE_STOCK`, `ADJUST_STOCK` ou `REVERSE_STOCK` conforme a
+operação e cobrir negativas por papel. A Etapa 2.1 não iniciou a API rural.
+
+## 48. propertyId tenant-scoped é identidade estrutural imutável
+
+**Decisão:** tratar a `propertyId` de `Area`, `StockProduct`, `FarmRecord` e
+`StockMovement` como parte da identidade estrutural da entidade e, portanto,
+imutável após a criação. Uma eventual correção de tenant não será um update
+comum nem um efeito cascata; precisará de uma operação administrativa
+explícita, auditada e projetada especificamente para isso.
+
+**Por quê:** mudar a Property dessas entidades altera a fronteira tenant do
+dado e pode afetar aliases, registros, estoque, reversões e auditoria. Essa não
+é a semântica de uma edição comum e não deve acontecer implicitamente porque
+uma chave referenciada foi atualizada.
+
+**Consequência:** as oito FKs compostas usam `ON UPDATE RESTRICT` como defesa
+contra reparenting automático. Essa ação bloqueia a alteração da chave
+referenciada quando existem dependentes, mas não torna `propertyId`
+absolutamente imutável no PostgreSQL: uma entidade isolada ainda pode receber
+um `UPDATE` direto, e SQL coordenado pode tentar trocar ao mesmo tempo a
+`propertyId` e suas referências. A garantia também depende dos services e das
+permissões do banco. Triggers, RLS e a operação administrativa de correção não
+serão implementados na Etapa 2.1.

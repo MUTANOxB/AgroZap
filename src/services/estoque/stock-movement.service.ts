@@ -413,7 +413,12 @@ export async function reverseStockMovement(
       }
 
       const existingReversal = await transaction.stockMovement.findUnique({
-        where: { reversesMovementId: original.id },
+        where: {
+          propertyId_reversesMovementId: {
+            propertyId: command.propertyId,
+            reversesMovementId: original.id,
+          },
+        },
         select: { id: true },
       });
       if (existingReversal) {

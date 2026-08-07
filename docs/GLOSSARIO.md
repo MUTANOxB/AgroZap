@@ -163,7 +163,10 @@ primeira propriedade aberta depois da mudança. Um marcador impede copiar o
 mesmo legado para várias propriedades, e a chave antiga é preservada.
 
 Esses dados ficam somente naquele navegador e computador. O `localStorage` não
-é um banco de dados.
+é um banco de dados. Ele também pertence ao perfil inteiro do navegador: em um
+dispositivo compartilhado, outra conta pode enumerar chaves de Properties
+abertas anteriormente. A chave por `propertyId` evita mistura na navegação
+normal, mas não é uma fronteira de confidencialidade multi-tenant.
 
 ## Props
 
@@ -779,6 +782,26 @@ não deve indicar uma propriedade inexistente.
 No Prisma, campos como `fields: [propertyId]` e `references: [id]` descrevem
 essa ligação.
 
+Uma foreign key composta verifica mais de um campo ao mesmo tempo. Na Etapa
+2.1, relações entre entidades tenant-scoped usam combinações como
+`(propertyId, areaId)` → `(propertyId, id)`. Assim, uma área existente na
+Property B não pode ser ligada a um registro da Property A.
+
+## ON UPDATE RESTRICT
+
+`ON UPDATE RESTRICT` é uma ação de foreign key que recusa a alteração da chave
+referenciada quando existem linhas dependentes. Nas oito FKs compostas da
+Etapa 2.1, ela evita que mudar `(propertyId, id)` no registro-pai propague
+automaticamente outra `propertyId` aos filhos.
+
+No AgroZap, a `propertyId` de `Area`, `StockProduct`, `FarmRecord` e
+`StockMovement` é identidade estrutural e deve ser tratada como imutável após
+a criação. `RESTRICT`, porém, não torna o campo absolutamente imutável: uma
+linha sem dependentes ainda pode teoricamente ser atualizada diretamente, e
+SQL coordenado pode tentar trocar o tenant e as referências ao mesmo tempo. A
+regra também depende dos services e das permissões; a Etapa 2.1 não implementa
+trigger nem RLS para isso.
+
 ## Índice
 
 Índice é uma estrutura que ajuda o banco a encontrar dados mais rapidamente.
@@ -971,6 +994,10 @@ O model `AuditLog` pode registrar:
 Exemplo: uma saída pode registrar saldo antes `86`, saldo depois `83` e o ID do
 produto. Auditoria não é a mesma coisa que a lista amigável de anotações.
 
+`AuditLog.entityId` é polimórfico: junto de `entityType`, ele pode descrever
+entidades de tabelas diferentes. Por isso, não existe uma única FK para esse
+campo; services e testes devem mantê-lo coerente com a Property do log.
+
 ## Append-only
 
 Append-only significa que o histórico normal recebe novos registros, mas os
@@ -1006,6 +1033,11 @@ relações importantes que precisam ser validados pelo banco.
 
 Exemplo: “Fazenda de demonstração” é uma `Property`. Áreas, produtos,
 movimentos e registros pertencem a ela por `propertyId`.
+
+Nesta fase, `Property` é a fronteira tenant do AgroZap. A regra permanente é
+que User/Property A não lê, relaciona nem altera dados da Property B. O nome
+legível pode se repetir; `slug` continua sendo o identificador globalmente
+único e precisa ser desambiguado quando propriedades homônimas forem criadas.
 
 O nome mostrado no menu e no dashboard vem hoje da propriedade ativa resolvida
 no servidor, não de uma fazenda fixa no código.

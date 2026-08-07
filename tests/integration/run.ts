@@ -140,6 +140,7 @@ async function main() {
       "--test-concurrency=1",
       "tests/integration/foundation.integration.test.ts",
       "tests/integration/stage2.integration.test.ts",
+      "tests/integration/stage2-1-multitenancy.integration.test.ts",
     ],
     domainTestEnvironment,
   );

@@ -155,7 +155,6 @@ export function createArea(command: CreateAreaCommand): Promise<Area> {
           productivityUnit: command.productivityUnit?.trim() || null,
           aliases: {
             create: aliases.map((alias) => ({
-              propertyId: command.propertyId,
               ...alias,
             })),
           },

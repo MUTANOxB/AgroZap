@@ -64,14 +64,20 @@ Hoje o AgroZap possui:
 - Modo Simples e Modo Completo;
 - clima consultado por uma rota interna;
 - dados de demonstração para facilitar o desenvolvimento;
-- bloqueio de retirada quando o saldo local seria negativo.
+- bloqueio de retirada quando o saldo local seria negativo;
+- login real por telefone e senha;
+- seleção e troca de propriedade ativa;
+- equipe com papéis e capacidades revalidados no servidor.
 
 As telas ainda guardam áreas, anotações e produtos no `localStorage` do
-navegador por meio do `AgroAppContext`. Isso preserva o MVP durante a migração,
-mas tem limitações importantes: os dados ficam naquele navegador, não são
-compartilhados entre usuários e ainda não formam um histórico de banco.
+navegador por meio do `AgroAppContext`, em uma chave separada por Property.
+Isso preserva o MVP durante a migração, mas tem limitações importantes: os
+dados ficam naquele navegador, não são compartilhados entre usuários e ainda
+não formam um histórico de banco. Em um dispositivo compartilhado,
+`localStorage` também não é uma fronteira de confidencialidade entre contas do
+mesmo perfil de navegador.
 
-### EM CONSTRUÇÃO — banco, domínio e auditoria
+### ATUAL — identidade, banco, domínio e auditoria
 
 A fundação para a próxima versão já foi criada com PostgreSQL e Prisma. Ela
 inclui modelos para:
@@ -88,6 +94,29 @@ Também existem services com regras para criar áreas, produtos, anotações e
 movimentações. As movimentações do banco validam o saldo, registram o antes e
 o depois, criam auditoria e usam transação para evitar gravações pela metade.
 
+Nesta fase, **Property é a fronteira de isolamento tenant do AgroZap**. O
+PostgreSQL protege com oito FKs compostas as relações tenant-scoped entre
+aliases, áreas, produtos, registros, movimentos e reversões. Assim, uma relação
+da Property A não pode apontar para uma entidade da Property B apenas porque os
+dois IDs existem. Essa blindagem foi adicionada pela migration
+`20260807180000_stage_2_1_multi_tenant_isolation`.
+
+A `propertyId` de áreas, produtos, registros e movimentos é identidade
+estrutural e deve permanecer imutável após a criação. As oito FKs compostas
+usam `ON UPDATE RESTRICT` para não reparentar dependentes automaticamente. Uma
+eventual correção futura de tenant deverá ser uma operação administrativa
+explícita, auditada e projetada especificamente para isso.
+
+Essa ação referencial não torna o campo absolutamente imutável: linhas
+isoladas e SQL que altere coordenadamente as referências ainda exigem proteção
+na arquitetura dos services e nas permissões. Triggers e RLS não foram
+implementados nesta etapa.
+
+`User` continua global e pode participar de várias propriedades por
+`PropertyMember`. Telefone continua globalmente único. `Property.slug` também
+é um identificador global, enquanto nomes legíveis de propriedades podem se
+repetir.
+
 Essa fundação **ainda não está conectada às páginas por uma API ou Server
 Action**. Portanto, cadastrar algo pela interface ainda altera o
 `localStorage`, não o PostgreSQL. Ter o schema e os services prontos não
@@ -97,9 +126,6 @@ significa que o banco já esteja sendo usado pelas telas.
 
 Estão planejados para etapas futuras:
 
-- login e identificação segura do usuário;
-- seleção e gestão de múltiplas propriedades;
-- vários funcionários por propriedade, com papéis e permissões;
 - API real ligando as telas aos services e ao PostgreSQL;
 - migração assistida dos dados locais;
 - uso principal pelo WhatsApp, com identificação pelo telefone;
@@ -107,10 +133,26 @@ Estão planejados para etapas futuras:
 - interpretação de texto e áudio por inteligência artificial;
 - alertas, notificações e novos módulos de gestão.
 
-Não existe integração com WhatsApp, chatbot, IA, transcrição de áudio ou
-autenticação nesta etapa.
+Uma `Organization` poderá futuramente agrupar várias Properties para empresa,
+família, cobrança ou administração central, mas foi deliberadamente adiada.
+PostgreSQL RLS não foi implementado. Também não existe integração com WhatsApp,
+chatbot, IA ou transcrição de áudio, e a Etapa 3 ainda não foi iniciada.
 
 ## Como os dados circulam hoje
+
+Identidade, propriedade ativa e equipe seguem o caminho server-side:
+
+```text
+Pessoa autentica e escolhe uma propriedade
+        ↓
+Servidor revalida User + Property + PropertyMember
+        ↓
+Servidor deriva actorUserId, propertyId e capacidades
+        ↓
+Service usa Prisma e PostgreSQL
+```
+
+Os cadastros rurais da interface ainda seguem a ponte local:
 
 ```text
 Pessoa preenche uma tela
@@ -124,8 +166,8 @@ Context salva no localStorage do navegador
 React atualiza as telas
 ```
 
-O banco possui sua própria fundação, mas esse caminho ainda não é chamado pela
-interface.
+O banco já atende autenticação, propriedade e equipe. O caminho rural local
+ainda não chama os services persistentes.
 
 ## Como deverá funcionar depois da integração
 
@@ -134,7 +176,7 @@ Tela ou canal autorizado
         ↓
 API/Server identifica propriedade e usuário
         ↓
-Service valida a regra de negócio
+Service valida capability, ator confiável e regra de negócio
         ↓
 Prisma executa uma transação
         ↓
@@ -170,9 +212,10 @@ O banco foi preparado para manter duas identidades:
 - `performedBy`: quem realizou a atividade no campo.
 
 Por exemplo, João pode informar que Pedro retirou um produto. Nesse caso, João
-registrou e Pedro executou. Essa separação existe na fundação do banco, mas
-ainda depende de autenticação e da integração com as telas para funcionar na
-experiência real.
+registrou e Pedro executou. As identidades e a autenticação já existem, mas os
+formulários rurais ainda precisam ser integrados ao servidor para usar essa
+separação na experiência real. Atores históricos continuam globais mesmo se a
+membership atual for removida.
 
 ## Histórico das operações
 
