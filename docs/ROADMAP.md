@@ -29,11 +29,11 @@ O MVP é funcional, mas os dados ainda ficam em um único navegador. Algumas
 partes do painel também usam dados de demonstração. Por isso, a etapa não é
 considerada uma versão multiusuário concluída.
 
-## ETAPA 1 — Banco, domínio e auditoria
+## ETAPA 1 — Banco + domínio + auditoria
 
-**Status: etapa atual — fundação técnica implementada, integração pendente**
+**Status: concluída**
 
-Entregas já preparadas:
+Entregas concluídas nesta fundação:
 
 - PostgreSQL e Prisma 7.9;
 - schema multipropriedade;
@@ -49,7 +49,7 @@ Entregas já preparadas:
 - tipos TypeScript retirados progressivamente do Context;
 - bloqueio de estoque negativo também no fluxo temporário do `localStorage`.
 
-Ainda falta para encerrar esta etapa de ponta a ponta:
+Limites conhecidos que pertencem às próximas etapas:
 
 - configurar um PostgreSQL real em cada ambiente;
 - ligar as páginas aos services por uma camada de API/Server;
@@ -57,9 +57,36 @@ Ainda falta para encerrar esta etapa de ponta a ponta:
 - planejar como os dados existentes do navegador serão importados ou
   descartados com segurança.
 
-## ETAPA 2 — Autenticação, usuários e equipe
+Esses limites não reabrem a fundação da Etapa 1. Eles serão tratados nas
+etapas de autenticação, API e migração do armazenamento local.
 
-**Status: planejada**
+## ETAPA 1.1 — Endurecimento da fundação
+
+**Status: concluída**
+
+Entregas:
+
+- geração automática do Prisma Client antes do build, sem exigir
+  `DATABASE_URL` apenas para gerar ou validar;
+- snapshots históricos dos nomes de produto e área em movimentações e
+  anotações persistentes;
+- migration incremental `20260807120000_stage_1_1_hardening`;
+- novas operações restritas a usuários atuais ativos na propriedade;
+- reversão histórica permitida mesmo após arquivamento do produto ou da área;
+- snapshots da reversão copiados da movimentação original;
+- regra append-only para `StockMovement` e `AuditLog`;
+- anotação e estoque tratados como uma operação composta no MVP local;
+- testes leves para as validações locais mais críticas;
+- documentação do isolamento futuro por sessão e da normalização de `2,5`
+  para `2.5` na camada de entrada.
+
+A migration foi criada e revisada, mas ainda precisa ser aplicada e validada
+em um PostgreSQL real. Esta etapa não implementou autenticação, WhatsApp nem
+inteligência artificial.
+
+## ETAPA 2 — Autenticação + propriedade ativa + equipe + permissões
+
+**Status: planejada — próxima etapa**
 
 Objetivo:
 
@@ -67,7 +94,8 @@ Objetivo:
 - identificar o usuário atual;
 - selecionar a propriedade ativa;
 - administrar membros e papéis `OWNER`, `MANAGER`, `EMPLOYEE` e `VIEWER`;
-- aplicar autorização nas operações do servidor.
+- derivar a propriedade autorizada da sessão e do `PropertyMember`;
+- aplicar autorização e permissões nas operações do servidor.
 
 O schema já representa os papéis, mas isso ainda não é um sistema de login nem
 uma política completa de permissões.

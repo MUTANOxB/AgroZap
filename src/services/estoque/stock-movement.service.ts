@@ -6,7 +6,7 @@ import {
 } from "@/generated/prisma/client";
 import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
-import { findMissingPropertyMemberIds } from "@/services/usuarios/property-membership";
+import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 import { StockDomainError } from "./errors";
 
 const MAX_TRANSACTION_ATTEMPTS = 4;
@@ -99,7 +99,27 @@ function parseDecimal(value: string, fieldLabel: string) {
   }
 }
 
-async function assertMovementScope(
+async function assertActivePropertyUsers(
+  transaction: Prisma.TransactionClient,
+  propertyId: string,
+  userIds: Array<string | null | undefined>,
+) {
+  const inactiveOrMissingUserIds =
+    await findUserIdsWithoutActivePropertyMembership(
+      transaction,
+      propertyId,
+      userIds,
+    );
+
+  if (inactiveOrMissingUserIds.length > 0) {
+    throw new StockDomainError(
+      "USER_NOT_ACTIVE_PROPERTY_MEMBER",
+      "O usuário informado não está ativo nesta propriedade.",
+    );
+  }
+}
+
+async function assertNewMovementScope(
   transaction: Prisma.TransactionClient,
   command: MovementContext,
 ) {
@@ -115,19 +135,13 @@ async function assertMovementScope(
     throw new StockDomainError("PRODUCT_NOT_FOUND", "Produto não encontrado.");
   }
 
-  const missingMemberIds = await findMissingPropertyMemberIds(
+  await assertActivePropertyUsers(
     transaction,
     command.propertyId,
     [command.createdByUserId, command.performedByUserId],
   );
 
-  if (missingMemberIds.length > 0) {
-    throw new StockDomainError(
-      "USER_NOT_PROPERTY_MEMBER",
-      "O usuário informado não pertence a esta propriedade.",
-    );
-  }
-
+  let areaNameSnapshot: string | null = null;
   if (command.areaId) {
     const area = await transaction.area.findFirst({
       where: {
@@ -135,7 +149,7 @@ async function assertMovementScope(
         propertyId: command.propertyId,
         archivedAt: null,
       },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!area) {
       throw new StockDomainError(
@@ -143,6 +157,7 @@ async function assertMovementScope(
         "A área informada não pertence a esta propriedade.",
       );
     }
+    areaNameSnapshot = area.name;
   }
 
   if (command.farmRecordId) {
@@ -157,6 +172,65 @@ async function assertMovementScope(
       throw new StockDomainError(
         "RELATED_ENTITY_NOT_FOUND",
         "A anotação informada não pertence a esta propriedade.",
+      );
+    }
+  }
+
+  return { product, areaNameSnapshot };
+}
+
+async function assertHistoricalReversalScope(
+  transaction: Prisma.TransactionClient,
+  command: ReverseStockMovementCommand,
+  original: Pick<StockMovement, "productId" | "areaId" | "farmRecordId">,
+) {
+  await assertActivePropertyUsers(
+    transaction,
+    command.propertyId,
+    [command.createdByUserId, command.performedByUserId],
+  );
+
+  const product = await transaction.stockProduct.findFirst({
+    where: {
+      id: original.productId,
+      propertyId: command.propertyId,
+    },
+  });
+  if (!product) {
+    throw new StockDomainError(
+      "PRODUCT_NOT_FOUND",
+      "O produto da movimentação original não foi encontrado nesta propriedade.",
+    );
+  }
+
+  if (original.areaId) {
+    const area = await transaction.area.findFirst({
+      where: {
+        id: original.areaId,
+        propertyId: command.propertyId,
+      },
+      select: { id: true },
+    });
+    if (!area) {
+      throw new StockDomainError(
+        "RELATED_ENTITY_NOT_FOUND",
+        "A área da movimentação original não foi encontrada nesta propriedade.",
+      );
+    }
+  }
+
+  if (original.farmRecordId) {
+    const farmRecord = await transaction.farmRecord.findFirst({
+      where: {
+        id: original.farmRecordId,
+        propertyId: command.propertyId,
+      },
+      select: { id: true },
+    });
+    if (!farmRecord) {
+      throw new StockDomainError(
+        "RELATED_ENTITY_NOT_FOUND",
+        "A anotação da movimentação original não foi encontrada nesta propriedade.",
       );
     }
   }
@@ -228,7 +302,10 @@ async function updateBalanceOptimistically(
 
 export function registerStockMovement(command: RegisterStockMovementCommand) {
   return runStockTransaction(async (transaction) => {
-    const product = await assertMovementScope(transaction, command);
+    const { product, areaNameSnapshot } = await assertNewMovementScope(
+      transaction,
+      command,
+    );
     const balanceBefore = product.quantity;
     const { quantityChange, balanceAfter } = calculateMovement(
       command,
@@ -252,6 +329,8 @@ export function registerStockMovement(command: RegisterStockMovementCommand) {
         farmRecordId: command.farmRecordId ?? null,
         type: command.type,
         quantityChange,
+        productNameSnapshot: product.name,
+        areaNameSnapshot,
         unitSnapshot: product.unit,
         balanceBefore,
         balanceAfter,
@@ -328,15 +407,11 @@ export async function reverseStockMovement(
         );
       }
 
-      const scope: MovementContext = {
-        propertyId: command.propertyId,
-        productId: original.productId,
-        areaId: original.areaId,
-        farmRecordId: original.farmRecordId,
-        createdByUserId: command.createdByUserId,
-        performedByUserId: command.performedByUserId,
-      };
-      const product = await assertMovementScope(transaction, scope);
+      const product = await assertHistoricalReversalScope(
+        transaction,
+        command,
+        original,
+      );
       const balanceBefore = product.quantity;
       const quantityChange = original.quantityChange.negated();
       const balanceAfter = balanceBefore.plus(quantityChange);
@@ -362,6 +437,8 @@ export async function reverseStockMovement(
           farmRecordId: original.farmRecordId,
           type: StockMovementType.REVERSAL,
           quantityChange,
+          productNameSnapshot: original.productNameSnapshot,
+          areaNameSnapshot: original.areaNameSnapshot,
           unitSnapshot: original.unitSnapshot,
           balanceBefore,
           balanceAfter,

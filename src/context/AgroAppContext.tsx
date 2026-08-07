@@ -31,6 +31,10 @@ type AgroAppContextValue = {
   isModoCompleto: boolean;
   adicionarArea: (area: Omit<Area, "id">) => void;
   adicionarAnotacao: (anotacao: Omit<Annotation, "id">) => void;
+  adicionarAnotacaoComMovimentacao: (
+    anotacao: Omit<Annotation, "id">,
+    movement: { productId: number; change: number },
+  ) => void;
   adicionarProduto: (produto: Omit<StockProduct, "id">) => void;
   atualizarQuantidadeProduto: (productId: number, change: number) => void;
 };
@@ -191,6 +195,44 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
     ]);
   }
 
+  /*
+   * Valida e prepara as duas listas antes de publicar qualquer alteração.
+   * O React agrupa os setters do mesmo evento e o localStorage recebe o estado
+   * combinado depois da renderização, como uma única ação para o usuário.
+   */
+  function adicionarAnotacaoComMovimentacao(
+    anotacao: Omit<Annotation, "id">,
+    movement: { productId: number; change: number },
+  ) {
+    const product = produtos.find(
+      (currentProduct) => currentProduct.id === movement.productId,
+    );
+
+    if (!product) {
+      throw new StockDomainError(
+        "PRODUCT_NOT_FOUND",
+        "Selecione um produto válido para movimentar o estoque.",
+      );
+    }
+
+    const nextBalance = calculateLocalStockBalance(
+      product.quantity,
+      movement.change,
+    );
+    const annotationWithId = { ...anotacao, id: Date.now() };
+    const nextProducts = produtos.map((currentProduct) =>
+      currentProduct.id === product.id
+        ? { ...currentProduct, quantity: nextBalance }
+        : currentProduct,
+    );
+
+    setProdutos(nextProducts);
+    setAnotacoes((currentAnnotations) => [
+      annotationWithId,
+      ...currentAnnotations,
+    ]);
+  }
+
   function adicionarProduto(produto: Omit<StockProduct, "id">) {
     setProdutos((currentProducts) => [
       { ...produto, id: Date.now() },
@@ -232,6 +274,7 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
         isModoCompleto: modoUso === "completo",
         adicionarArea,
         adicionarAnotacao,
+        adicionarAnotacaoComMovimentacao,
         adicionarProduto,
         atualizarQuantidadeProduto,
       }}

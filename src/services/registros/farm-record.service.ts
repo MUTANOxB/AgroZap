@@ -6,7 +6,7 @@ import {
 } from "@/generated/prisma/client";
 import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
-import { findMissingPropertyMemberIds } from "@/services/usuarios/property-membership";
+import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 
 export type CreateFarmRecordCommand = {
   propertyId: string;
@@ -22,7 +22,6 @@ export type CreateFarmRecordCommand = {
   quantityUnit?: string | null;
   value?: string | null;
   responsibleName?: string | null;
-  productNameSnapshot?: string | null;
   appliedDose?: string | null;
   doseUnit?: string | null;
   harvest?: string | null;
@@ -38,7 +37,7 @@ export class FarmRecordDomainError extends Error {
       | "INVALID_RECORD"
       | "PROPERTY_NOT_FOUND"
       | "RELATED_ENTITY_NOT_FOUND"
-      | "USER_NOT_PROPERTY_MEMBER",
+      | "USER_NOT_ACTIVE_PROPERTY_MEMBER",
     message: string,
   ) {
     super(message);
@@ -92,26 +91,28 @@ export function createFarmRecord(
       );
     }
 
-    const missingMembers = await findMissingPropertyMemberIds(
+    const inactiveOrMissingMembers =
+      await findUserIdsWithoutActivePropertyMembership(
       transaction,
       command.propertyId,
       [command.createdByUserId, command.performedByUserId],
     );
-    if (missingMembers.length > 0) {
+    if (inactiveOrMissingMembers.length > 0) {
       throw new FarmRecordDomainError(
-        "USER_NOT_PROPERTY_MEMBER",
-        "O usuário informado não pertence a esta propriedade.",
+        "USER_NOT_ACTIVE_PROPERTY_MEMBER",
+        "O usuário informado não está ativo nesta propriedade.",
       );
     }
 
+    let area: { id: string; name: string } | null = null;
     if (command.areaId) {
-      const area = await transaction.area.findFirst({
+      area = await transaction.area.findFirst({
         where: {
           id: command.areaId,
           propertyId: command.propertyId,
           archivedAt: null,
         },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!area) {
         throw new FarmRecordDomainError(
@@ -121,14 +122,15 @@ export function createFarmRecord(
       }
     }
 
+    let product: { id: string; name: string } | null = null;
     if (command.productId) {
-      const product = await transaction.stockProduct.findFirst({
+      product = await transaction.stockProduct.findFirst({
         where: {
           id: command.productId,
           propertyId: command.propertyId,
           archivedAt: null,
         },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!product) {
         throw new FarmRecordDomainError(
@@ -153,7 +155,8 @@ export function createFarmRecord(
         quantityUnit: command.quantityUnit?.trim() || null,
         value,
         responsibleName: command.responsibleName?.trim() || null,
-        productNameSnapshot: command.productNameSnapshot?.trim() || null,
+        productNameSnapshot: product?.name ?? null,
+        areaNameSnapshot: area?.name ?? null,
         appliedDose,
         doseUnit: command.doseUnit?.trim() || null,
         harvest: command.harvest?.trim() || null,

@@ -696,6 +696,15 @@ No banco, quantidades usam até quatro casas decimais e valores monetários
 estruturados usam precisão própria. Os services usam `Prisma.Decimal` para
 evitar cálculos imprecisos com ponto flutuante.
 
+## Valor canônico
+
+Valor canônico é o formato único que o domínio aceita depois que a entrada foi
+validada e normalizada.
+
+Exemplo: uma pessoa brasileira pode digitar `2,5`, mas a futura camada de
+entrada converterá esse texto para `2.5` antes de chamar um service. O banco e
+o domínio não precisam adivinhar qual separador decimal foi usado.
+
 ## DateTime
 
 `DateTime` representa data e horário.
@@ -831,6 +840,15 @@ O model `AuditLog` pode registrar:
 Exemplo: uma saída pode registrar saldo antes `86`, saldo depois `83` e o ID do
 produto. Auditoria não é a mesma coisa que a lista amigável de anotações.
 
+## Append-only
+
+Append-only significa que o histórico normal recebe novos registros, mas os
+anteriores não são atualizados nem apagados.
+
+No AgroZap, `StockMovement` e `AuditLog` seguem essa regra. Uma correção cria
+um ajuste, uma reversão ou outro log. Assim, o passado continua visível e
+explicável.
+
 ## JSON e JSONB no banco
 
 JSON organiza informações em pares de nome e valor. O glossário já mostrou seu
@@ -900,6 +918,16 @@ origem, data, pessoas e motivo.
 
 Exemplo: uma saída de 3 litros com saldo de 86 registra `balanceBefore = 86` e
 `balanceAfter = 83`.
+
+## Snapshot histórico
+
+Snapshot histórico é uma cópia de um nome no momento em que um evento
+acontece.
+
+Exemplo: uma movimentação guarda `productNameSnapshot = "Produto A"`. Se o
+cadastro for renomeado depois para “Produto B”, o ID continua apontando para o
+produto atual, mas o snapshot da movimentação permanece “Produto A”. O mesmo
+vale para `areaNameSnapshot` quando houver uma área.
 
 ## Reversal
 

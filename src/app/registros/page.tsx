@@ -7,6 +7,10 @@ import {
   type AnnotationType,
 } from "@/context/AgroAppContext";
 import { getStockErrorMessage } from "@/services/estoque/errors";
+import {
+  parseRequiredLocalStockQuantity,
+  requireValidLocalStockProduct,
+} from "@/services/estoque/local-stock";
 
 type AnnotationForm = Omit<
   Annotation,
@@ -79,7 +83,7 @@ export default function RegistrosPage() {
     anotacoes: annotations,
     produtos,
     adicionarAnotacao,
-    atualizarQuantidadeProduto,
+    adicionarAnotacaoComMovimentacao,
     isModoCompleto,
   } = useAgroApp();
 
@@ -121,24 +125,21 @@ export default function RegistrosPage() {
             formData.productName.trim().toLocaleLowerCase("pt-BR"),
         )
       : undefined;
-    const stockQuantity =
-      isModoCompleto && formData.stockQuantity !== ""
-        ? Number(formData.stockQuantity)
-        : null;
+    let stockQuantity: number | null = null;
+    let stockMovement: { productId: number; change: number } | null = null;
 
-    if (
-      isModoCompleto &&
-      changesStock &&
-      selectedProduct &&
-      stockQuantity !== null &&
-      Number.isFinite(stockQuantity) &&
-      stockQuantity > 0
-    ) {
-      const change = stockEntryTypes.includes(formData.type)
-        ? stockQuantity
-        : -stockQuantity;
+    if (isModoCompleto && changesStock) {
       try {
-        atualizarQuantidadeProduto(selectedProduct.id, change);
+        const validProduct = requireValidLocalStockProduct(selectedProduct);
+        stockQuantity = parseRequiredLocalStockQuantity(
+          formData.stockQuantity,
+        );
+        stockMovement = {
+          productId: validProduct.id,
+          change: stockEntryTypes.includes(formData.type)
+            ? stockQuantity
+            : -stockQuantity,
+        };
       } catch (error) {
         window.alert(getStockErrorMessage(error));
         return;
@@ -154,7 +155,9 @@ export default function RegistrosPage() {
       value: isModoCompleto ? formData.value.trim() : "",
       responsible: isModoCompleto ? formData.responsible.trim() : "",
       productId: selectedProduct?.id ?? null,
-      productName: isModoCompleto ? formData.productName.trim() : "",
+      productName: isModoCompleto
+        ? selectedProduct?.name ?? formData.productName.trim()
+        : "",
       stockQuantity,
       appliedDose: isModoCompleto ? formData.appliedDose?.trim() : "",
       doseUnit: isModoCompleto ? formData.doseUnit?.trim() : "",
@@ -164,7 +167,16 @@ export default function RegistrosPage() {
       technicalNote: isModoCompleto ? formData.technicalNote?.trim() : "",
     };
 
-    adicionarAnotacao(newAnnotation);
+    try {
+      if (stockMovement) {
+        adicionarAnotacaoComMovimentacao(newAnnotation, stockMovement);
+      } else {
+        adicionarAnotacao(newAnnotation);
+      }
+    } catch (error) {
+      window.alert(getStockErrorMessage(error));
+      return;
+    }
     setFormData(emptyForm);
   }
 

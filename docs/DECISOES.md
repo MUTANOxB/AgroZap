@@ -287,3 +287,126 @@ total nesta etapa aumentaria muito o risco de quebrar o MVP.
 `localStorage`. Os dados do navegador não são copiados automaticamente pelo
 seed. A futura migração deverá declarar quando ler dados locais, como evitar
 duplicação e quando remover a compatibilidade.
+
+## 23. O build sempre gera o Prisma Client
+
+**Decisão:** executar `npm run db:generate` no script `prebuild` e deixar a
+configuração da fonte de dados opcional quando `DATABASE_URL` não existir.
+
+**Por quê:** `src/generated/prisma` não pertence ao Git. Uma máquina nova ou um
+ambiente de CI precisa conseguir executar `npm install` e `npm run build` sem
+depender de uma geração manual anterior. Gerar o client não abre conexão com o
+banco, portanto não deve exigir uma credencial que ainda não existe.
+
+**Consequência:** `npm run build` gera o client automaticamente. Validação e
+geração do schema podem funcionar sem `DATABASE_URL`; migration, seed e acesso
+real ao PostgreSQL continuam exigindo uma URL válida. A pasta gerada permanece
+ignorada e nunca deve ser editada à mão.
+
+## 24. IDs atuais e snapshots históricos têm papéis diferentes
+
+**Decisão:** manter o ID como relação com a entidade atual e gravar o nome do
+produto e da área como snapshot no momento do evento.
+
+**Por quê:** renomear “Produto A” para “Produto B” não deve reescrever a forma
+como uma movimentação antiga era identificada.
+
+**Consequência:** novas movimentações preenchem `productNameSnapshot` e
+`areaNameSnapshot` dentro da mesma transação que lê as entidades. O service de
+`FarmRecord` também busca os nomes e não confia em um nome enviado pelo caller.
+Uma reversão copia os snapshots do movimento original. A migration
+`20260807120000_stage_1_1_hardening` preenche registros antigos com o melhor
+nome ainda disponível, sem substituir snapshots de produto já existentes em
+`FarmRecord`.
+
+## 25. Usuário desativado não inicia uma nova ação
+
+**Decisão:** `createdByUserId` e `performedByUserId`, quando informados em uma
+nova ação, precisam identificar usuários existentes, membros da propriedade e
+com `deactivatedAt = null`.
+
+**Por quê:** manter um vínculo antigo de `PropertyMember` não significa que a
+pessoa ainda está autorizada a agir.
+
+**Consequência:** áreas, produtos, movimentações e anotações novas usam a
+validação de participação ativa. A desativação não apaga a pessoa nem remove
+sua autoria de registros anteriores. A autenticação e as permissões por papel
+continuam para a próxima etapa.
+
+## 26. Nova operação e reversão histórica usam regras diferentes
+
+**Decisão:** uma nova operação exige produto e área ativos; uma reversão pode
+usar o produto ou a área original arquivados, desde que ainda existam e
+pertençam à mesma propriedade.
+
+**Por quê:** arquivamento impede uso futuro, mas não pode impedir a correção de
+um evento que já aconteceu.
+
+**Consequência:** a reversão não reativa entidades e não altera `archivedAt`.
+Quem realiza a reversão agora deve ser um membro ativo quando sua identidade é
+informada. O autor ou executor histórico do movimento original pode estar
+desativado, pois ele não está iniciando a correção atual.
+
+## 27. StockMovement e AuditLog são append-only
+
+**Decisão:** operações normais somente acrescentam `StockMovement` e
+`AuditLog`; elas não atualizam nem apagam esses registros.
+
+**Por quê:** editar o passado silenciosamente enfraqueceria a auditoria e
+dificultaria explicar como o saldo chegou ao valor atual.
+
+**Consequência:** correções de estoque criam uma nova movimentação, um
+`ADJUSTMENT` ou um `REVERSAL`, conforme o caso. Não devem ser criados services
+genéricos de update ou delete para movimentos e logs. Nesta etapa a regra é de
+domínio e documentação; não foi criado trigger complexo no PostgreSQL.
+
+## 28. A propriedade futura será derivada da sessão
+
+**Decisão:** uma futura API nunca confiará somente no `propertyId` enviado pelo
+navegador.
+
+**Por quê:** uma pessoa da Fazenda A poderia alterar manualmente uma requisição
+para tentar acessar a Fazenda B.
+
+**Consequência:** após a autenticação, o fluxo obrigatório será:
+
+```text
+session.user
+    ↓
+PropertyMember
+    ↓
+Property ativa autorizada
+    ↓
+Service
+```
+
+O service receberá uma propriedade validada contra a identidade autenticada.
+Esta regra está formalizada agora, mas sessão, login e autorização ainda não
+foram implementados.
+
+## 29. Números brasileiros são normalizados na entrada
+
+**Decisão:** o domínio trabalha com valor decimal canônico, como `2.5`, e a
+futura camada de entrada converte texto brasileiro, como `2,5`, antes de chamar
+um service.
+
+**Por quê:** vírgula e ponto têm significados diferentes dependendo do formato
+de entrada. Essa diferença não deve chegar ambígua ao banco.
+
+**Consequência:** formulários, API, WhatsApp ou uma IA futura devem validar e
+normalizar o texto primeiro. A IA nunca enviará um valor textual não validado
+diretamente ao PostgreSQL. Esta etapa não transforma os parsers atuais em
+interpretadores universais.
+
+## 30. Anotação local e estoque formam uma operação composta
+
+**Decisão:** no Modo Completo, uma anotação que exige estoque só é publicada
+depois que produto, quantidade e próximo saldo forem validados juntos.
+
+**Por quê:** o usuário percebe a anotação e a mudança de estoque como uma única
+ação. Salvar apenas uma das duas partes deixa o MVP inconsistente.
+
+**Consequência:** o Context prepara as duas próximas listas e publica seus
+estados no mesmo evento. Se a validação falhar, nenhum estado muda. Essa é uma
+garantia da ponte local atual, não uma transação de banco; a futura API deverá
+orquestrar a operação persistente em uma transação real.

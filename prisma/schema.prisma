@@ -206,6 +206,8 @@ model StockMovement {
   farmRecordId        String?
   type                StockMovementType
   quantityChange      Decimal           @db.Decimal(18, 4)
+  productNameSnapshot String
+  areaNameSnapshot    String?
   unitSnapshot        String
   balanceBefore       Decimal           @db.Decimal(18, 4)
   balanceAfter        Decimal           @db.Decimal(18, 4)
@@ -249,6 +251,7 @@ model FarmRecord {
   value               Decimal?        @db.Decimal(18, 2)
   responsibleName     String?
   productNameSnapshot String?
+  areaNameSnapshot    String?
   appliedDose         Decimal?        @db.Decimal(18, 4)
   doseUnit            String?
   harvest             String?

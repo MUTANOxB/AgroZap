@@ -191,6 +191,8 @@ O contexto guarda:
 - `produtos`: produtos do estoque;
 - `modoUso`: modo `"simples"` ou `"completo"`;
 - funções para adicionar e atualizar dados;
+- `adicionarAnotacaoComMovimentacao`: valida e publica uma anotação junto com
+  sua mudança local de estoque;
 - `isLoaded`: informa quando os dados do navegador terminaram de carregar;
 - `isModoCompleto`: forma curta de saber se o modo atual é completo.
 
@@ -286,6 +288,11 @@ mostra tipo, quantidade, responsável, valor e informações técnicas.
 
 Algumas anotações completas também podem alterar a quantidade de um produto no
 estoque.
+
+Quando o tipo exige estoque, a página valida primeiro se o produto existe e se
+a quantidade é numérica e maior que zero. Depois o Context calcula o próximo
+saldo e prepara a anotação e o produto antes de publicar os dois estados. Se
+alguma validação falhar, nenhuma das duas partes é salva.
 
 ### Estoque
 
@@ -602,7 +609,8 @@ Se `DATABASE_URL` não estiver configurada, o arquivo mostra uma mensagem clara.
 modelos, enums e `Prisma.Decimal` dessa pasta.
 
 Não altere os arquivos gerados. Use `npm run db:generate` depois de mudar o
-schema.
+schema. O script `prebuild` também executa essa geração automaticamente antes
+de `npm run build`, inclusive em uma instalação limpa.
 
 ## 11. Como os modelos se relacionam
 
@@ -661,8 +669,8 @@ se uma saída é permitida ou como criar a auditoria.
 
 - `src/services/auditoria/audit-log.service.ts`: cria `AuditLog` usando a
   transação que o chamou.
-- `src/services/usuarios/property-membership.ts`: verifica se os usuários
-  informados pertencem à propriedade.
+- `src/services/usuarios/property-membership.ts`: encontra usuários que não
+  existem, não pertencem à propriedade ou estão desativados.
 
 ### WhatsApp
 
@@ -676,9 +684,9 @@ O service de estoque executa este fluxo:
 ```text
 Comando recebido pelo service
         ↓
-Confere produto e propriedade
+Confere produto e propriedade e exige produto ativo
         ↓
-Confere área, anotação e membros informados
+Confere área ativa, anotação e usuários atuais ativos
         ↓
 Lê o saldo atual
         ↓
@@ -686,7 +694,7 @@ Valida quantidade e estoque disponível
         ↓
 Atualiza o saldo somente se ele não mudou
         ↓
-Cria StockMovement com antes e depois
+Cria StockMovement com saldos e snapshots dos nomes
         ↓
 Cria AuditLog
         ↓
@@ -715,7 +723,12 @@ Se necessário, novo movimento correto: OUT -2
 ```
 
 O registro original permanece no histórico. Um movimento só pode possuir uma
-reversão direta.
+reversão direta. Produto e área podem estar arquivados nessa correção
+histórica, mas ainda precisam existir e pertencer à mesma propriedade. A
+reversão não os reativa e copia os snapshots da movimentação original.
+
+`StockMovement` e `AuditLog` são append-only nas operações normais. Uma
+correção acrescenta outro movimento ou log; ela não altera nem apaga o passado.
 
 ## 14. Tipos do frontend e tipos do banco
 
@@ -755,6 +768,12 @@ Ele continua salvando as chaves `agrozap-mvp-data` e `agrozap-settings` no
 navegador. A diferença desta etapa é que a mudança local de saldo chama
 `calculateLocalStockBalance`, que rejeita uma retirada sem saldo.
 
+Na Etapa 1.1, `src/app/registros/page.tsx` também usa
+`requireValidLocalStockProduct` e `parseRequiredLocalStockQuantity`. Quando a
+anotação exige movimento, `adicionarAnotacaoComMovimentacao` valida o próximo
+saldo antes de alterar as listas. Assim não existe anotação sem o estoque
+obrigatório, nem estoque alterado sem a anotação correspondente.
+
 Essa proteção não transforma o `localStorage` em banco. Ela não cria movimento,
 auditoria, usuário ou transação PostgreSQL.
 
@@ -774,17 +793,20 @@ como evitar duplicação.
 
 ```bash
 npm run dev          # executa a interface com hot reload
+npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
 npm run typecheck    # verifica os tipos TypeScript
 npm run lint         # verifica padrões de código
-npm run build        # cria a versão de produção
+npm run build        # gera o Prisma Client e cria a versão de produção
 npm run db:validate  # valida o schema Prisma
 npm run db:generate  # gera o Prisma Client
 npm run db:migrate   # aplica/cria migrations no ambiente de desenvolvimento
 npm run db:seed      # carrega dados fictícios no PostgreSQL
 ```
 
-Os comandos de banco precisam de `DATABASE_URL` no `.env`. O arquivo `.env`
-está ignorado pelo Git; `.env.example` contém apenas o nome da variável.
+`db:generate`, `db:validate` e o build não precisam abrir conexão e podem rodar
+sem `DATABASE_URL`. `db:migrate`, `db:seed` e o uso real dos services precisam
+de uma URL válida. O arquivo `.env` está ignorado pelo Git; `.env.example`
+contém apenas o nome da variável.
 
 ## 18. O que estudar nesta nova etapa
 
@@ -806,3 +828,75 @@ MVP:
 
 5. Qual service valida essa operação?
 6. Quais dados e auditorias precisam ser salvos na mesma transação?
+
+## 19. O que a Etapa 1.1 endureceu
+
+### Snapshots históricos
+
+`StockMovement` guarda obrigatoriamente `productNameSnapshot` e pode guardar
+`areaNameSnapshot`. `FarmRecord` pode guardar os dois. Esses nomes são lidos
+pelo service a partir das entidades reais, dentro da operação, e não mudam se
+o cadastro for renomeado depois.
+
+A migration incremental fica em:
+
+`prisma/migrations/20260807120000_stage_1_1_hardening/migration.sql`
+
+Ela adiciona as colunas, preenche registros anteriores com os nomes ainda
+disponíveis e somente depois torna o snapshot de produto da movimentação
+obrigatório. Ela ainda precisa ser aplicada e validada em um PostgreSQL real.
+
+### Usuários atuais ativos
+
+Os services de áreas, produtos, movimentações e anotações consultam
+`findUserIdsWithoutActivePropertyMembership`. Se um usuário atual for
+informado, ele precisa existir, pertencer à propriedade e não estar desativado.
+Registros históricos continuam apontando normalmente para pessoas desativadas.
+
+### Nova operação e reversão
+
+```text
+NOVA OPERAÇÃO
+produto e área existem, pertencem à propriedade e estão ativos
+
+REVERSÃO HISTÓRICA
+produto e área existem e pertencem à propriedade, mesmo arquivados
+```
+
+Quem faz a reversão agora precisa ser um membro ativo quando sua identidade é
+informada. Quem realizou a movimentação original pode estar desativado. Os
+snapshots da reversão são copiados do movimento original.
+
+### Histórico append-only
+
+Os services não oferecem update ou delete normal para `StockMovement` ou
+`AuditLog`. Ajustes e correções geram novos registros. A Etapa 1.1 formaliza
+essa regra sem adicionar trigger complexo ao PostgreSQL.
+
+## 20. Regras obrigatórias para a futura API
+
+### Isolamento por propriedade
+
+O navegador não será autoridade para escolher a propriedade. Um `propertyId`
+recebido na requisição será aceito somente depois deste caminho:
+
+```text
+session.user
+    ↓
+PropertyMember
+    ↓
+Property ativa autorizada
+    ↓
+Service
+```
+
+Isso impede que alguém da Fazenda A altere manualmente uma requisição para
+agir na Fazenda B. A regra está documentada, mas sessão e autenticação ainda
+não foram implementadas.
+
+### Números em português do Brasil
+
+A camada de entrada converterá um texto brasileiro como `"2,5"` para o valor
+canônico `"2.5"` antes de chamar os services. O domínio não receberá texto
+ambíguo, e uma IA futura nunca enviará valores não validados diretamente ao
+banco. Essa normalização completa ainda não foi implementada nesta etapa.

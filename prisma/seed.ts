@@ -256,6 +256,7 @@ async function main() {
           productId: createdProduct.id,
           type: StockMovementType.ADJUSTMENT,
           quantityChange: openingQuantity,
+          productNameSnapshot: createdProduct.name,
           unitSnapshot: example.unit,
           balanceBefore: new Prisma.Decimal(0),
           balanceAfter: openingQuantity,
@@ -330,6 +331,15 @@ async function main() {
   ];
 
   for (const example of recordExamples) {
+    const area = areas.find((candidate) => candidate.id === example.areaId);
+    const product = example.productId
+      ? products.find((candidate) => candidate.id === example.productId)
+      : null;
+
+    if (!area || (example.productId && !product)) {
+      throw new Error("Não foi possível resolver os snapshots do seed.");
+    }
+
     const existingRecord = await db.farmRecord.findFirst({
       where: {
         propertyId: property.id,
@@ -351,6 +361,8 @@ async function main() {
           type: example.type,
           description: example.description,
           occurredAt: example.occurredAt,
+          productNameSnapshot: product?.name ?? null,
+          areaNameSnapshot: area.name,
           source: RecordSource.SYSTEM,
         },
       });

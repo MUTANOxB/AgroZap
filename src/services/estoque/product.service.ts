@@ -8,7 +8,7 @@ import {
 import { normalizeLookupName } from "@/lib/normalize-name";
 import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
-import { findMissingPropertyMemberIds } from "@/services/usuarios/property-membership";
+import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 
 export type CreateStockProductCommand = {
   propertyId: string;
@@ -35,7 +35,7 @@ export class StockProductDomainError extends Error {
     public readonly code:
       | "INVALID_PRODUCT"
       | "PROPERTY_NOT_FOUND"
-      | "USER_NOT_PROPERTY_MEMBER"
+      | "USER_NOT_ACTIVE_PROPERTY_MEMBER"
       | "PRODUCT_NAME_ALREADY_USED",
     message: string,
   ) {
@@ -127,15 +127,16 @@ export function createStockProduct(
         );
       }
 
-      const missingMembers = await findMissingPropertyMemberIds(
+      const inactiveOrMissingMembers =
+        await findUserIdsWithoutActivePropertyMembership(
         transaction,
         command.propertyId,
         [command.createdByUserId],
       );
-      if (missingMembers.length > 0) {
+      if (inactiveOrMissingMembers.length > 0) {
         throw new StockProductDomainError(
-          "USER_NOT_PROPERTY_MEMBER",
-          "O usuário informado não pertence a esta propriedade.",
+          "USER_NOT_ACTIVE_PROPERTY_MEMBER",
+          "O usuário informado não está ativo nesta propriedade.",
         );
       }
 
@@ -200,6 +201,7 @@ export function createStockProduct(
             productId: product.id,
             type: StockMovementType.ADJUSTMENT,
             quantityChange: initialQuantity,
+            productNameSnapshot: product.name,
             unitSnapshot: product.unit,
             balanceBefore: new Prisma.Decimal(0),
             balanceAfter: initialQuantity,
