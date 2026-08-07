@@ -273,7 +273,7 @@ function calculateMovement(
   }
 
   const amount = parseDecimal(command.amount, "A quantidade");
-  if (!amount.isPositive()) {
+  if (!amount.greaterThan(0)) {
     throw new StockDomainError(
       "INVALID_QUANTITY",
       "A quantidade movimentada deve ser maior que zero.",

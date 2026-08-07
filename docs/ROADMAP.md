@@ -46,14 +46,13 @@ Entregas concluídas nesta fundação:
   conflitos de estoque;
 - reversão de movimentações;
 - migration inicial e seed de demonstração;
+- validação das migrations, do seed e das regras críticas em PostgreSQL real;
 - tipos TypeScript retirados progressivamente do Context;
 - bloqueio de estoque negativo também no fluxo temporário do `localStorage`.
 
 Limites conhecidos que pertencem às próximas etapas:
 
-- configurar um PostgreSQL real em cada ambiente;
 - ligar as páginas aos services por uma camada de API/Server;
-- definir testes automatizados para as regras críticas;
 - planejar como os dados existentes do navegador serão importados ou
   descartados com segurança.
 
@@ -80,9 +79,46 @@ Entregas:
 - documentação do isolamento futuro por sessão e da normalização de `2,5`
   para `2.5` na camada de entrada.
 
-A migration foi criada e revisada, mas ainda precisa ser aplicada e validada
-em um PostgreSQL real. Esta etapa não implementou autenticação, WhatsApp nem
+A migration foi criada, aplicada desde um banco vazio e validada em PostgreSQL
+real pela Etapa 1.2. Esta etapa não implementou autenticação, WhatsApp nem
 inteligência artificial.
+
+## ETAPA 1.1.1 — Bloqueio de propriedade arquivada
+
+**Status: ajuste concluído**
+
+O ajuste passou a bloquear uma nova movimentação quando a própria `Property`
+está arquivada. Uma reversão histórica continua permitida, desde que o movimento
+pertença à propriedade e quem faz a correção agora seja um membro ativo. A
+integração real confirmou que o bloqueio faz rollback completo e que a reversão
+não reativa propriedade, produto ou área.
+
+## ETAPA 1.2 — Validação real com PostgreSQL
+
+**Status: validação PostgreSQL concluída**
+
+Entregas:
+
+- banco local descartável `agrozap_test`, separado do desenvolvimento;
+- preflight de guardas para host e porta locais, segmento `test` no nome,
+  banco diferente do desenvolvimento, parâmetros sem override, lista de bancos
+  protegidos, ambiente `dotenv` sanitizado e marcador interno do runner;
+- logs sem URL completa nem credenciais;
+- duas migrations aplicadas com `prisma migrate deploy` desde banco vazio;
+- seed executado duas vezes, preservando identidades e sem duplicar os dados
+  esperados;
+- 8 de 8 testes unitários aprovados;
+- 25 de 25 testes de integração aprovados, sendo 17 cenários de domínio/banco e
+  8 cenários de segurança do runner;
+- concorrência de retiradas e reversões validada sem saldo negativo nem
+  duplicação efetiva;
+- rollbacks, snapshots, usuários desativados, arquivamento, reversões,
+  isolamento entre propriedades, aliases e `CHECK constraints` comprovados;
+- correção da validação decimal de zero com `greaterThan(0)` e testes de
+  regressão.
+
+O banco normal `agrozap` não foi resetado pela suíte. A Etapa 1 está encerrada
+com evidência real da fundação, sem iniciar autenticação, API, WhatsApp ou IA.
 
 ## ETAPA 2 — Autenticação + propriedade ativa + equipe + permissões
 

@@ -190,7 +190,7 @@ export function createStockProduct(
         },
       });
 
-      if (initialQuantity.isPositive()) {
+      if (initialQuantity.greaterThan(0)) {
         product = await transaction.stockProduct.update({
           where: { id: product.id },
           data: { quantity: initialQuantity },

@@ -205,6 +205,11 @@ também não devem sofrer imprecisões comuns de números de ponto flutuante.
 os convertem de forma controlada. A API futura deverá converter corretamente os
 campos de formulário, que hoje ainda usam `number` ou texto no frontend.
 
+A validação de “maior que zero” usa `greaterThan(0)`, e não `isPositive()`. A
+Etapa 1.2 mostrou que `isPositive()` também aceita `+0`. Com a comparação
+explícita, saldo inicial zero não cria um movimento de abertura vazio e uma
+movimentação de quantidade zero é recusada pelo domínio antes do banco.
+
 ## 17. Datas reais usam Date, DateTime e Timestamptz
 
 **Decisão:** acontecimentos e auditorias usam `Timestamptz(3)`; validade e data
@@ -412,3 +417,50 @@ ação. Salvar apenas uma das duas partes deixa o MVP inconsistente.
 estados no mesmo evento. Se a validação falhar, nenhum estado muda. Essa é uma
 garantia da ponte local atual, não uma transação de banco; a futura API deverá
 orquestrar a operação persistente em uma transação real.
+
+## 31. Testes destrutivos usam um banco local exclusivo
+
+**Decisão:** testes de integração que recriam o PostgreSQL usam somente um
+banco local descartável cujo nome contém `test` como segmento explícito. Na execução da Etapa 1.2, foi
+usado `agrozap_test`, derivado apenas em memória da configuração local.
+
+**Por quê:** provar migrations desde zero e concorrência exige apagar e recriar
+um banco. Usar o banco normal de desenvolvimento poderia destruir dados válidos
+e transformar uma validação em incidente.
+
+**Consequência:** antes de qualquer `DROP DATABASE`, o runner exige host
+`localhost` ou `127.0.0.1`, porta explícita, nome simples com letras, números ou
+`_`, segmento `test`, diferença em relação ao banco de desenvolvimento e ausência na lista
+protegida `agrozap`, `postgres`, `template0` e `template1`. O identificador só é
+incluído no SQL depois dessa validação.
+
+O processo de testes recebe um marcador interno e precisa usar como
+`DATABASE_URL` exatamente o banco já aprovado pelo runner. Isso impede executar
+o arquivo de domínio diretamente contra outra conexão. Parâmetros que tentem
+trocar host, porta ou database são recusados, e controles do `dotenv` são
+removidos dos subprocessos para impedir override pelo `.env`. Os oito testes de
+segurança rodam antes de qualquer `DROP`. URLs completas são retiradas dos
+logs, o `.env` não é sobrescrito e o banco normal nunca é usado como alternativa
+silenciosa.
+
+## 32. Regras críticas precisam de teste unitário e integração real
+
+**Decisão:** manter os testes unitários leves com `node:test` e acrescentar uma
+suíte de integração, também com `node:test` e `tsx`, que chama os services reais
+e consulta o PostgreSQL.
+
+**Por quê:** um teste unitário explica rapidamente uma regra isolada, mas não
+prova migrations, constraints, transações, rollback ou duas operações
+concorrentes. A integração prova o comportamento completo sem copiar a lógica
+do service para o teste.
+
+**Consequência:** `npm run test:stage1.1` cobre as regras unitárias,
+`npm run test:integration` prepara o banco seguro e cobre a fundação real, e
+`npm run test:all` executa os dois grupos. O runner aplica as migrations com
+`prisma migrate deploy`, executa o seed duas vezes, compara as identidades entre
+as execuções e usa fixtures próprias para os cenários de domínio.
+
+A Etapa 1.2 terminou com 8 de 8 testes unitários e 25 de 25 testes de integração
+aprovados. Entre as evidências estão saldo e auditoria atômicos, rollback,
+retirada e reversão concorrentes, snapshots, arquivamento, isolamento entre
+propriedades, aliases e `CHECK constraints` do PostgreSQL.

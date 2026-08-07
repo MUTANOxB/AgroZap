@@ -50,6 +50,8 @@ AgroZap/
 │   ├── schema.prisma     Modelos e relações do banco
 │   ├── migrations/       Histórico da estrutura do PostgreSQL
 │   └── seed.ts           Dados fictícios para desenvolvimento
+├── tests/
+│   └── integration/      Runner seguro e testes com PostgreSQL real
 ├── public/
 │   └── brand/            Arquivos da marca AgroZap
 ├── src/
@@ -580,7 +582,9 @@ A URL vem do ambiente. Credenciais reais não devem ser escritas nesse arquivo.
 ### `prisma/migrations/`
 
 A migration é o roteiro SQL que cria e altera a estrutura do PostgreSQL. A
-migration inicial desta etapa cria enums, tabelas, índices, chaves e relações.
+migration inicial cria enums, tabelas, índices, chaves, relações e constraints.
+A migration da Etapa 1.1 acrescenta e preenche os snapshots históricos. As duas
+foram aplicadas em ordem desde um banco vazio durante a Etapa 1.2.
 
 Ela não é a mesma coisa que o seed:
 
@@ -593,7 +597,8 @@ Cria uma propriedade de demonstração, usuários fictícios, participações,
 áreas, produtos, apelidos, saldos iniciais e anotações.
 
 Os telefones são reservados para desenvolvimento. O seed não lê nem importa os
-dados que já existem no `localStorage`.
+dados que já existem no `localStorage`. A suíte de integração executa o seed
+duas vezes e confirma que os registros esperados não são duplicados.
 
 ### `src/lib/prisma.ts`
 
@@ -797,6 +802,8 @@ como evitar duplicação.
 ```bash
 npm run dev          # executa a interface com hot reload
 npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
+npm run test:integration # recria agrozap_test e testa o PostgreSQL real
+npm run test:all     # executa testes unitários e de integração
 npm run typecheck    # verifica os tipos TypeScript
 npm run lint         # verifica padrões de código
 npm run build        # gera o Prisma Client e cria a versão de produção
@@ -847,7 +854,8 @@ A migration incremental fica em:
 
 Ela adiciona as colunas, preenche registros anteriores com os nomes ainda
 disponíveis e somente depois torna o snapshot de produto da movimentação
-obrigatório. Ela ainda precisa ser aplicada e validada em um PostgreSQL real.
+obrigatório. A Etapa 1.2 aplicou essa migration depois da migration inicial em
+um PostgreSQL vazio e confirmou as duas como concluídas, sem rollback.
 
 ### Usuários atuais ativos
 
@@ -903,3 +911,80 @@ A camada de entrada converterá um texto brasileiro como `"2,5"` para o valor
 canônico `"2.5"` antes de chamar os services. O domínio não receberá texto
 ambíguo, e uma IA futura nunca enviará valores não validados diretamente ao
 banco. Essa normalização completa ainda não foi implementada nesta etapa.
+
+## 21. Como funciona a validação PostgreSQL da Etapa 1.2
+
+Os testes reais ficam em `tests/integration/`:
+
+- `run.ts`: executa o preflight de segurança, prepara o banco, aplica
+  migrations, executa o seed duas vezes, compara as identidades e inicia os
+  testes;
+- `test-database.ts`: concentra as guardas e recria somente o banco descartável
+  autorizado;
+- `test-database-safety.test.ts`: exercita oito cenários de proteção do runner;
+- `fixtures.ts`: cria propriedades, usuários, produtos e áreas exclusivos para
+  cada cenário;
+- `foundation.integration.test.ts`: contém dezessete cenários de domínio e
+  PostgreSQL real.
+
+### Proteção do banco de desenvolvimento
+
+Na execução padrão, o runner pode derivar `agrozap_test` em memória a partir de
+uma `DATABASE_URL` local. Também aceita `TEST_DATABASE_URL`, mas nunca grava a
+URL escolhida no `.env` e nunca mostra a conexão completa nos logs.
+
+Antes de apagar ou criar qualquer banco, ele confere:
+
+```text
+host é localhost ou 127.0.0.1 e a porta é explícita
+        ↓
+nome contém test como segmento e usa somente letras, números ou underscore
+        ↓
+nome é diferente do banco de desenvolvimento
+        ↓
+nome não é agrozap, postgres, template0 ou template1
+        ↓
+overrides de URL e controles do dotenv são removidos
+        ↓
+8 testes das guardas passam antes de qualquer DROP
+        ↓
+runner marca o processo e aponta DATABASE_URL para o banco já aprovado
+        ↓
+somente então agrozap_test pode ser recriado
+```
+
+Os testes de domínio também recusam execução direta sem o marcador interno. A
+saída dos subprocessos passa por redação de URLs antes de chegar ao console.
+Assim, a suíte pode ser destrutiva no banco descartável sem colocar o banco
+normal `agrozap` em risco.
+
+### O que a suíte consulta de verdade
+
+O teste de integração não copia a lógica do service. Ele chama o service real e
+consulta o PostgreSQL para conferir o estado confirmado. A suíte cobre:
+
+- migrations desde banco vazio e seed idempotente;
+- saldo, movimento e auditoria na mesma transação;
+- rollback por estoque insuficiente, usuário desativado ou propriedade
+  arquivada;
+- duas retiradas concorrentes de 8 sobre saldo 10, com uma única retirada
+  efetiva e saldo final 2;
+- snapshots após renomear produto e área;
+- diferença entre `createdBy` e `performedBy`;
+- operações novas bloqueadas após arquivamento e reversões históricas
+  permitidas;
+- reversão duplicada, reversão de reversão e duas reversões concorrentes;
+- isolamento entre propriedades e escopo dos aliases;
+- `CHECK constraints` como última barreira contra saldos e movimentos
+  inválidos.
+
+Ao todo, `test:integration` aprovou 25 de 25 casos: 17 de domínio/banco e 8 de
+segurança. `test:stage1.1` aprovou 8 de 8 testes unitários.
+
+### Regressão de quantidade zero
+
+A integração mostrou que `Decimal.isPositive()` considera `+0` positivo. Os
+services agora usam `greaterThan(0)`: saldo inicial zero não cria movimento de
+abertura, e uma movimentação de quantidade zero é recusada com
+`INVALID_QUANTITY` antes de chegar ao banco. Os dois comportamentos possuem
+cobertura de regressão.
