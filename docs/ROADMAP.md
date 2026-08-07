@@ -23,9 +23,10 @@ Já existe uma aplicação web responsiva com:
 - estoque;
 - Modo Simples e Modo Completo;
 - dados de demonstração;
-- persistência no `localStorage`.
+- persistência rural no `localStorage`, agora isolada por propriedade.
 
-O MVP é funcional, mas os dados ainda ficam em um único navegador. Algumas
+O MVP é funcional, mas áreas, anotações e produtos ainda ficam em um único
+navegador, mesmo separados pela propriedade ativa. Algumas
 partes do painel também usam dados de demonstração. Por isso, a etapa não é
 considerada uma versão multiusuário concluída.
 
@@ -122,28 +123,64 @@ com evidência real da fundação, sem iniciar autenticação, API, WhatsApp ou 
 
 ## ETAPA 2 — Autenticação + propriedade ativa + equipe + permissões
 
-**Status: planejada — próxima etapa**
+**Status: concluída**
 
-Objetivo:
+Entregas:
 
-- implementar login;
-- identificar o usuário atual;
-- selecionar a propriedade ativa;
+- Auth.js v5 beta com provider `Credentials`, sessão `JWT` e
+  `AUTH_SECRET` obrigatório;
+- login por telefone brasileiro normalizado para `+55` e senha;
+- hash com `bcryptjs`, custo 12, mínimo de 10 e máximo de 128 caracteres, com
+  rejeição do limite de truncamento de 72 bytes do bcrypt;
+- comparação com hash bcrypt aleatório de descarte para telefone inexistente
+  ou conta ainda sem senha, reduzindo enumeração temporal simples;
+- migration que adiciona apenas `User.passwordHash String?`, sem adapter nem
+  tabelas paralelas de autenticação;
+- revalidação do `User` ativo no PostgreSQL a cada contexto de sessão
+  protegido;
+- seleção e troca da propriedade ativa por cookie `HttpOnly`, `SameSite=Lax`,
+  `Secure` em produção e `Path=/`;
+- revalidação do cookie contra usuário, propriedade e `PropertyMember` ativos;
 - administrar membros e papéis `OWNER`, `MANAGER`, `EMPLOYEE` e `VIEWER`;
-- derivar a propriedade autorizada da sessão e do `PropertyMember`;
-- aplicar autorização e permissões nas operações do servidor.
+- política central de capacidades para leitura, cadastros, registros, estoque,
+  equipe e auditoria;
+- proteção contra autogerenciamento, escalada por `MANAGER` e remoção ou
+  rebaixamento do último `OWNER`;
+- mutações de equipe e auditoria na mesma transação `Serializable`, com retry
+  limitado em conflitos;
+- rotas agrupadas para login, seleção de propriedade e páginas que exigem
+  propriedade ativa;
+- `PropertyAccessContext` como projeção de UX, sem substituir autorização no
+  servidor;
+- dados rurais locais isolados em `agrozap-mvp-data:<propertyId>`, com migração
+  única e preservada da antiga chave global;
+- script restrito ao PostgreSQL local chamado `agrozap`, sem overrides de host
+  ou banco na URL, para gerar senha temporária de desenvolvimento.
 
-O schema já representa os papéis, mas isso ainda não é um sistema de login nem
-uma política completa de permissões.
+A suíte implementada contém 8 testes unitários da Etapa 1, 16 testes unitários
+da Etapa 2 e 45 testes de integração: 37 cenários de domínio/banco e 8 guardas
+de segurança. A validação final aprovou 24/24 testes unitários, 45/45 de
+integração e 69/69 pelo agregador `test:all`.
+
+Esta etapa conclui identidade, propriedade ativa e gestão de equipe no
+servidor. Ela não moveu áreas, anotações nem produtos da interface para o
+PostgreSQL e não iniciou WhatsApp ou IA.
+
+Riscos residuais deliberadamente fora do escopo: rate limiting distribuído do
+login e revogação versionada de JWT após troca de senha. A revalidação do
+`User` ativo permanece implementada e bloqueia contas desativadas no requisito
+da Etapa 2.
 
 ## ETAPA 3 — API real e substituição do localStorage
 
-**Status: planejada**
+**Status: planejada — próxima etapa recomendada**
 
 Objetivo:
 
 - criar Route Handlers, Server Actions ou outra camada de servidor clara;
 - chamar os services sem expor o banco ao navegador;
+- reutilizar a sessão, a propriedade ativa revalidada e as capacidades da
+  Etapa 2 em toda escrita;
 - fazer áreas, produtos e anotações usarem PostgreSQL;
 - consultar movimentos e auditoria com paginação;
 - manter o modo visual como preferência local quando fizer sentido;
@@ -151,6 +188,7 @@ Objetivo:
 
 Esta etapa termina quando atualizar duas sessões diferentes mostra o mesmo dado
 da propriedade e o `localStorage` deixa de ser a fonte dos cadastros rurais.
+Ela está apenas recomendada neste roadmap; não foi iniciada na Etapa 2.
 
 ## ETAPA 4 — WhatsApp por texto e identificação por telefone
 

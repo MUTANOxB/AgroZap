@@ -12,8 +12,10 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test:stage1.1": "tsx --test src/services/estoque/local-stock.test.ts src/services/estoque/property-operation-policy.test.ts",
+    "test:stage2": "node --conditions=react-server --import tsx --test src/services/auth/auth.test.ts src/services/autorizacao/property-role-policy.test.ts",
     "test:integration": "tsx tests/integration/run.ts",
-    "test:all": "npm run test:stage1.1 && npm run test:integration",
+    "test:all": "npm run test:stage1.1 && npm run test:stage2 && npm run test:integration",
+    "auth:dev-password": "node --conditions=react-server --import tsx scripts/auth-dev-password.ts",
     "db:validate": "prisma validate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -22,10 +24,13 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "bcryptjs": "^3.0.3",
     "next": "latest",
+    "next-auth": "^5.0.0-beta.32",
     "pg": "^8.22.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "latest",

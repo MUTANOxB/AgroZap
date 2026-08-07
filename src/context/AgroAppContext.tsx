@@ -39,8 +39,79 @@ type AgroAppContextValue = {
   atualizarQuantidadeProduto: (productId: number, change: number) => void;
 };
 
-const STORAGE_KEY = "agrozap-mvp-data";
+type StoredAgroData = {
+  areas?: Area[];
+  anotacoes?: Annotation[];
+  produtos?: StockProduct[];
+};
+
+type AgroAppProviderProps = {
+  activePropertyId: string;
+  children: ReactNode;
+};
+
+const LEGACY_STORAGE_KEY = "agrozap-mvp-data";
+const LEGACY_MIGRATION_MARKER_KEY =
+  "agrozap-mvp-data:property-scope-migration:v1";
 const SETTINGS_STORAGE_KEY = "agrozap-settings";
+
+function getPropertyStorageKey(propertyId: string) {
+  return `${LEGACY_STORAGE_KEY}:${propertyId}`;
+}
+
+function parseStoredAgroData(serializedData: string): StoredAgroData | null {
+  const parsedData: unknown = JSON.parse(serializedData);
+
+  if (
+    typeof parsedData !== "object" ||
+    parsedData === null ||
+    Array.isArray(parsedData)
+  ) {
+    return null;
+  }
+
+  const candidate = parsedData as StoredAgroData;
+
+  return {
+    areas: Array.isArray(candidate.areas) ? candidate.areas : undefined,
+    anotacoes: Array.isArray(candidate.anotacoes)
+      ? candidate.anotacoes
+      : undefined,
+    produtos: Array.isArray(candidate.produtos) ? candidate.produtos : undefined,
+  };
+}
+
+/*
+ * A chave antiga não indicava a propriedade dona dos dados. A primeira
+ * propriedade aberta após esta mudança reivindica a migração global. O marker
+ * é gravado antes da cópia para que uma falha não permita copiar o mesmo legado
+ * para outra propriedade depois. A chave antiga nunca é apagada.
+ */
+function migrateLegacyStorageOnce(
+  storage: Storage,
+  activePropertyId: string,
+  propertyStorageKey: string,
+) {
+  if (storage.getItem(LEGACY_MIGRATION_MARKER_KEY) !== null) return;
+
+  const legacyData = storage.getItem(LEGACY_STORAGE_KEY);
+  const propertyData = storage.getItem(propertyStorageKey);
+
+  storage.setItem(
+    LEGACY_MIGRATION_MARKER_KEY,
+    JSON.stringify({ version: 1, propertyId: activePropertyId }),
+  );
+
+  if (legacyData === null || propertyData !== null) return;
+
+  try {
+    if (parseStoredAgroData(legacyData) !== null) {
+      storage.setItem(propertyStorageKey, legacyData);
+    }
+  } catch {
+    // O legado inválido continua preservado, mas não é propagado.
+  }
+}
 
 const initialAreas: Area[] = [
   { id: 1, name: "Lavoura do milho", type: "Lavoura", size: "8 hectares", note: "Roça do fundo, próxima ao galpão." },
@@ -104,12 +175,17 @@ const AgroAppContext = createContext<AgroAppContextValue | null>(null);
  * Assim, uma área ou produto cadastrado em uma tela fica disponível nas outras
  * sem que o produtor precise digitar novamente.
  */
-export function AgroAppProvider({ children }: { children: ReactNode }) {
+export function AgroAppProvider({
+  activePropertyId,
+  children,
+}: AgroAppProviderProps) {
   const [areas, setAreas] = useState<Area[]>(initialAreas);
   const [anotacoes, setAnotacoes] = useState<Annotation[]>(initialAnnotations);
   const [produtos, setProdutos] = useState<StockProduct[]>(initialProducts);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [loadedPropertyId, setLoadedPropertyId] = useState<string | null>(null);
   const [modoUso, setModoUso] = useState<UsageMode>("simples");
+  const propertyStorageKey = getPropertyStorageKey(activePropertyId);
 
   /*
    * O localStorage só existe no navegador. Por isso, os dados são carregados
@@ -118,19 +194,29 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
   */
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
+      setIsLoaded(false);
+      setLoadedPropertyId(null);
+      setAreas(initialAreas);
+      setAnotacoes(initialAnnotations);
+      setProdutos(initialProducts);
+
       try {
-        const savedData = localStorage.getItem(STORAGE_KEY);
+        migrateLegacyStorageOnce(
+          localStorage,
+          activePropertyId,
+          propertyStorageKey,
+        );
+
+        const savedData = localStorage.getItem(propertyStorageKey);
 
         if (savedData) {
-          const parsedData = JSON.parse(savedData) as {
-            areas?: Area[];
-            anotacoes?: Annotation[];
-            produtos?: StockProduct[];
-          };
+          const parsedData = parseStoredAgroData(savedData);
 
-          if (Array.isArray(parsedData.areas)) setAreas(parsedData.areas);
-          if (Array.isArray(parsedData.anotacoes)) setAnotacoes(parsedData.anotacoes);
-          if (Array.isArray(parsedData.produtos)) setProdutos(parsedData.produtos);
+          if (parsedData) {
+            if (parsedData.areas) setAreas(parsedData.areas);
+            if (parsedData.anotacoes) setAnotacoes(parsedData.anotacoes);
+            if (parsedData.produtos) setProdutos(parsedData.produtos);
+          }
         }
 
         const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -150,25 +236,34 @@ export function AgroAppProvider({ children }: { children: ReactNode }) {
       } catch {
         // Se os dados salvos estiverem inválidos, o aplicativo usa os exemplos iniciais.
       } finally {
+        setLoadedPropertyId(activePropertyId);
         setIsLoaded(true);
       }
     }, 0);
 
     return () => window.clearTimeout(loadTimer);
-  }, []);
+  }, [activePropertyId, propertyStorageKey]);
 
   /*
    * Depois do carregamento inicial, toda alteração é salva no navegador.
    * Isso mantém os dados mesmo ao atualizar a página, ainda sem usar banco.
-   */
+  */
   useEffect(() => {
-    if (!isLoaded) return;
+    if (!isLoaded || loadedPropertyId !== activePropertyId) return;
 
     localStorage.setItem(
-      STORAGE_KEY,
+      propertyStorageKey,
       JSON.stringify({ areas, anotacoes, produtos }),
     );
-  }, [areas, anotacoes, produtos, isLoaded]);
+  }, [
+    activePropertyId,
+    areas,
+    anotacoes,
+    isLoaded,
+    loadedPropertyId,
+    propertyStorageKey,
+    produtos,
+  ]);
 
   /*
    * O modo de uso também fica salvo no localStorage. Ele começa como simples

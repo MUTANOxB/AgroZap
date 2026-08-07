@@ -4,6 +4,164 @@ Este arquivo registra mudanças importantes em linguagem simples. Ele não
 substitui o histórico do Git; seu objetivo é explicar o motivo e o impacto de
 cada etapa para quem está estudando o projeto.
 
+## 07/08/2026 — Autenticação, propriedade ativa, equipe e permissões (Etapa 2)
+
+### O que foi entregue
+
+A Etapa 2 está concluída no código. O AgroZap agora possui login web com
+telefone e senha, sessão autenticada, seleção de propriedade ativa, troca de
+propriedade, gestão de equipe e autorização por papel. As rotas protegidas não
+dependem de um `propertyId` aceito diretamente do navegador: identidade,
+participação e estado atual são revalidados no PostgreSQL antes de formar o
+contexto usado pelo servidor.
+
+A autenticação usa Auth.js v5 beta (`next-auth` `5.0.0-beta.32`) com provider
+`Credentials` e sessão `JWT`. Não foi criado adapter nem conjunto paralelo de
+tabelas de autenticação; a migration
+`20260807150000_stage_2_authentication` acrescenta somente
+`User.passwordHash String?`. O token e a sessão expõem apenas o identificador
+necessário do usuário. Cada entrada em fluxo protegido consulta novamente o
+`User` e exige `deactivatedAt = null`, de modo que uma pessoa desativada não
+continua autorizada apenas por ainda possuir um JWT válido.
+
+Senhas são processadas com `bcryptjs` `3.0.3`, custo 12. O fluxo exige de 10 a
+128 caracteres e também rejeita entradas com mais de 72 bytes, limite a partir
+do qual o bcrypt truncaria silenciosamente. Nenhuma senha em texto puro é
+gravada. O telefone brasileiro é normalizado antes da busca para a forma
+canônica internacional iniciada por `+55`; a validação é estrutural e não
+substitui uma futura confirmação de posse do número.
+
+Quando o telefone não existe ou o usuário ainda não possui `passwordHash`, o
+provider `Credentials` compara a senha com um hash bcrypt aleatório de descarte
+do mesmo custo antes de devolver a falha genérica. Isso reduz diferenças óbvias
+de tempo entre contas existentes e inexistentes; não transforma o login em
+proteção completa contra abuso distribuído.
+
+### Propriedade ativa e rotas protegidas
+
+O cookie `agrozap_active_property` guarda somente o ID candidato da propriedade
+ativa e usa `HttpOnly`, `SameSite=Lax`, `Secure` em produção e `Path=/`. O valor
+do cookie nunca é a autoridade final. O servidor combina o usuário da sessão
+com `PropertyMember` e aceita o contexto somente quando usuário e propriedade
+continuam ativos e o vínculo ainda existe. Cookie ausente ou inválido leva à
+seleção em `/propriedades`.
+
+As rotas ficaram separadas por grupos do App Router:
+
+- `src/app/login/`: página, formulário e action de login;
+- `src/app/(authenticated)/`: exige usuário atual autenticado;
+- `src/app/(authenticated)/propriedades/`: lista e seleciona uma propriedade;
+- `src/app/(authenticated)/(property)/`: exige propriedade ativa e envolve
+  dashboard, áreas, anotações, estoque e equipe com os providers e o
+  `AppShell`;
+- `src/app/api/auth/[...nextauth]/route.ts`: Route Handler do Auth.js;
+- `src/proxy.ts`: checagem otimista do JWT nas rotas protegidas.
+
+O Proxy melhora o redirecionamento, mas não substitui autorização. A decisão
+definitiva fica nos layouts, Server Actions e services próximos ao banco.
+
+### Papéis, capacidades e equipe
+
+A política central em
+`src/services/autorizacao/property-role-policy.ts` traduz os papéis `OWNER`,
+`MANAGER`, `EMPLOYEE` e `VIEWER` nas capacidades:
+`READ_PROPERTY`, `CREATE_AREA`, `CREATE_PRODUCT`, `CREATE_RECORD`, `MOVE_STOCK`,
+`MANAGE_TEAM`, `ADJUST_STOCK`, `REVERSE_STOCK` e `VIEW_AUDIT`. `OWNER` e
+`MANAGER` possuem o conjunto completo nesta etapa; `EMPLOYEE` pode ler,
+registrar e movimentar estoque; `VIEWER` possui somente leitura.
+
+A tela `/equipe` permite listar membros, adicionar um usuário já cadastrado por
+telefone, trocar o papel e remover a participação. `OWNER` administra todos os
+papéis. `MANAGER` administra apenas `EMPLOYEE` e `VIEWER`; não pode criar,
+alterar nem remover `OWNER` ou `MANAGER`. Ninguém pode alterar a própria
+participação por essa tela, e a propriedade nunca pode ficar sem ao menos um
+`OWNER`.
+
+As mutações da equipe repetem autorização e verificação de último proprietário
+dentro de transações `Serializable`, com retry limitado para conflitos de
+concorrência. A mudança e seu `AuditLog` são confirmados ou desfeitos juntos.
+As ações auditadas são `PROPERTY_MEMBER_ADDED`,
+`PROPERTY_MEMBER_ROLE_CHANGED` e `PROPERTY_MEMBER_REMOVED`.
+
+### Ponte temporária dos dados rurais
+
+Áreas, anotações e produtos da interface ainda não foram migrados para o
+PostgreSQL. Eles continuam no `AgroAppContext`, mas agora são isolados por
+propriedade na chave `agrozap-mvp-data:<propertyId>`. A antiga chave global
+`agrozap-mvp-data` é copiada, no máximo uma vez, para a primeira propriedade
+aberta depois da mudança; um marcador registra essa decisão e a chave antiga é
+preservada. Esse mecanismo evita compartilhar automaticamente o mesmo conjunto
+local entre todas as propriedades, mas não transforma o navegador em banco
+multiusuário.
+
+`PropertyAccessContext` recebe do servidor a projeção de usuário, propriedade,
+papel e capacidades para adaptar a interface. Ele é conveniência de UX, não uma
+fronteira de segurança. Escritas rurais continuam locais nesta etapa; a Etapa 3
+deverá ligá-las aos services PostgreSQL com autorização repetida no servidor.
+
+### Arquivos principais
+
+- `src/auth.config.ts` e `src/auth.ts`;
+- `src/proxy.ts`;
+- `src/services/auth/`;
+- `src/services/propriedades/`;
+- `src/services/autorizacao/property-role-policy.ts`;
+- `src/services/equipe/`;
+- `src/app/login/`;
+- `src/app/(authenticated)/`;
+- `src/context/PropertyAccessContext.tsx`;
+- `src/context/AgroAppContext.tsx`;
+- `scripts/auth-dev-password.ts`;
+- `prisma/migrations/20260807150000_stage_2_authentication/migration.sql`;
+- `tests/integration/stage2.integration.test.ts`.
+
+### Testes e validação
+
+A suíte atual está organizada em 8 testes unitários da Etapa 1, 16 testes
+unitários da Etapa 2 e 45 testes de integração: 37 cenários de domínio/banco e
+8 guardas de segurança do banco descartável. A validação final aprovou todos:
+24/24 unitários, 45/45 de integração e 69/69 pelo agregador `test:all`.
+
+```bash
+npm run test:stage1.1
+npm run test:stage2
+npm run test:integration
+npm run test:all
+```
+
+### Como testar localmente sem registrar segredo ou senha
+
+1. Copie as variáveis esperadas de `.env.example` para um `.env` local ignorado
+   pelo Git e configure uma `DATABASE_URL` para PostgreSQL local cujo banco se
+   chame exatamente `agrozap`, além de um `AUTH_SECRET` aleatório com pelo menos
+   32 caracteres. Não cole os valores em commits, logs ou documentação.
+2. Aplique as migrations e carregue o seed com `npm run db:migrate` e
+   `npm run db:seed`.
+3. Defina uma senha temporária para um telefone do ambiente local com
+   `npm run auth:dev-password -- <telefone>`. O script recusa produção, host
+   remoto, banco com outro nome e parâmetros de URL que tentem sobrescrever
+   `host`, `hostaddr`, `database` ou `dbname`. A senha gerada aparece uma única
+   vez; não a copie para este arquivo.
+4. Execute `npm run dev`, abra `/login`, entre com o telefone e a senha
+   temporária, escolha uma propriedade em `/propriedades` e confira a troca de
+   propriedade e a tela `/equipe`.
+
+### Riscos residuais conhecidos
+
+A Etapa 2 não implementa rate limiting distribuído para tentativas de login nem
+revogação versionada de JWT após troca de senha. Esses endurecimentos dependem
+da arquitetura de implantação e ficaram fora do escopo. A revalidação do
+`User` ativo no PostgreSQL continua bloqueando, dentro do requisito desta etapa,
+uma conta desativada mesmo quando o JWT ainda não expirou.
+
+### Resultado e próxima etapa
+
+A Etapa 2 encerra a base de identidade e autorização web sem iniciar WhatsApp,
+IA nem a persistência PostgreSQL dos formulários rurais. A próxima etapa
+recomendada é a Etapa 3 — API real e substituição do `localStorage`. Ela deve
+reutilizar o usuário e a propriedade ativa já revalidados e aplicar as mesmas
+capacidades nos services; não foi iniciada por esta entrega.
+
 ## 07/08/2026 — Validação real da fundação (Etapa 1.2)
 
 ### Por que esta validação foi criada?

@@ -64,8 +64,10 @@ propriedade terá várias pessoas. Um único `user.propertyId` impediria essa
 relação de muitos para muitos.
 
 **Consequência:** o papel fica no vínculo, com valores `OWNER`, `MANAGER`,
-`EMPLOYEE` e `VIEWER`. Os services atuais verificam a participação, mas login e
-regras detalhadas para cada papel ainda serão implementados.
+`EMPLOYEE` e `VIEWER`. Os fluxos autenticados atuais resolvem o
+`PropertyMember` no PostgreSQL e aplicam uma política central de capacidades.
+As páginas rurais ainda precisam repetir essa autorização nas escritas
+persistentes que serão ligadas ao banco na Etapa 3.
 
 ## 6. Telefone em formato internacional
 
@@ -75,9 +77,10 @@ valores como `+5564999999999`.
 **Por quê:** futuramente o número poderá ajudar a identificar o usuário no
 WhatsApp.
 
-**Consequência:** a normalização e a confirmação do telefone deverão acontecer
-no cadastro futuro. O schema sozinho não autentica a pessoa e não significa
-que o WhatsApp esteja conectado.
+**Consequência:** login e equipe normalizam formatos brasileiros para `+55`
+seguido de DDD e número antes de consultar o banco. A validação atual é
+estrutural; confirmar a posse do telefone continua sendo uma necessidade de um
+cadastro futuro. O uso no login não significa que o WhatsApp esteja conectado.
 
 ## 7. createdBy e performedBy são identidades diferentes
 
@@ -89,9 +92,9 @@ registro e Pedro executou a retirada. Usar um único campo perderia essa
 informação.
 
 **Consequência:** `performedBy` pode ficar vazio quando não se aplica. Os campos
-de usuário também aceitam ausência temporária para registros de sistema e para
-a fase sem login; depois da autenticação, os fluxos humanos deverão preencher
-`createdBy` sempre que houver um usuário identificado.
+de usuário também aceitam ausência para registros de sistema e para os dados
+rurais ainda mantidos no fluxo local. Nos novos fluxos humanos do servidor, a
+identidade vem da sessão revalidada, e não de um ID livre enviado pelo cliente.
 
 ## 8. Anotações persistentes se chamam FarmRecord
 
@@ -273,9 +276,10 @@ A IA não receberá credenciais para executar comandos livres no PostgreSQL.
 
 **Decisão:** não criar `PendingAction` nesta etapa.
 
-**Por quê:** ainda não existem autenticação, WhatsApp, IA nem contrato de
-confirmação. Criar a tabela agora exigiria adivinhar estados, validade,
-reprocessamento e regras de segurança.
+**Por quê:** quando a decisão foi tomada ainda não existiam autenticação,
+WhatsApp, IA nem contrato de confirmação. A autenticação web passou a existir
+na Etapa 2, mas os demais estados do fluxo continuam indefinidos; criar a tabela
+agora ainda exigiria adivinhar validade, reprocessamento e regras de segurança.
 
 **Consequência:** a entidade será desenhada na etapa de confirmação, depois que
 o fluxo real estiver definido. O adiamento é intencional e não impede a base
@@ -335,8 +339,9 @@ pessoa ainda está autorizada a agir.
 
 **Consequência:** áreas, produtos, movimentações e anotações novas usam a
 validação de participação ativa. A desativação não apaga a pessoa nem remove
-sua autoria de registros anteriores. A autenticação e as permissões por papel
-continuam para a próxima etapa.
+sua autoria de registros anteriores. Desde a Etapa 2, a sessão também
+reconsulta `User` e exige `deactivatedAt = null`, e a política de papéis está
+disponível para os fluxos do servidor.
 
 ## 26. Nova operação e reversão histórica usam regras diferentes
 
@@ -367,15 +372,15 @@ dificultaria explicar como o saldo chegou ao valor atual.
 genéricos de update ou delete para movimentos e logs. Nesta etapa a regra é de
 domínio e documentação; não foi criado trigger complexo no PostgreSQL.
 
-## 28. A propriedade futura será derivada da sessão
+## 28. A propriedade é derivada da sessão
 
-**Decisão:** uma futura API nunca confiará somente no `propertyId` enviado pelo
-navegador.
+**Decisão:** nenhum fluxo protegido confia somente no `propertyId` enviado pelo
+navegador ou armazenado em cookie.
 
 **Por quê:** uma pessoa da Fazenda A poderia alterar manualmente uma requisição
 para tentar acessar a Fazenda B.
 
-**Consequência:** após a autenticação, o fluxo obrigatório será:
+**Consequência:** o fluxo obrigatório implementado na Etapa 2 é:
 
 ```text
 session.user
@@ -387,9 +392,10 @@ Property ativa autorizada
 Service
 ```
 
-O service receberá uma propriedade validada contra a identidade autenticada.
-Esta regra está formalizada agora, mas sessão, login e autorização ainda não
-foram implementados.
+O cookie contém somente um ID candidato. `requireActivePropertyContext`
+revalida usuário, propriedade ativa e `PropertyMember` no PostgreSQL antes de
+entregar o contexto ao layout e aos Server Actions. Os services rurais deverão
+receber esse mesmo contexto autorizado quando forem ligados às telas.
 
 ## 29. Números brasileiros são normalizados na entrada
 
@@ -454,13 +460,151 @@ prova migrations, constraints, transações, rollback ou duas operações
 concorrentes. A integração prova o comportamento completo sem copiar a lógica
 do service para o teste.
 
-**Consequência:** `npm run test:stage1.1` cobre as regras unitárias,
-`npm run test:integration` prepara o banco seguro e cobre a fundação real, e
-`npm run test:all` executa os dois grupos. O runner aplica as migrations com
+**Consequência:** `npm run test:stage1.1` cobre a unidade da fundação,
+`npm run test:stage2` cobre autenticação e política de papéis,
+`npm run test:integration` prepara o banco seguro e cobre os services reais, e
+`npm run test:all` executa os três grupos. O runner aplica as migrations com
 `prisma migrate deploy`, executa o seed duas vezes, compara as identidades entre
 as execuções e usa fixtures próprias para os cenários de domínio.
 
 A Etapa 1.2 terminou com 8 de 8 testes unitários e 25 de 25 testes de integração
-aprovados. Entre as evidências estão saldo e auditoria atômicos, rollback,
-retirada e reversão concorrentes, snapshots, arquivamento, isolamento entre
-propriedades, aliases e `CHECK constraints` do PostgreSQL.
+aprovados. Depois da Etapa 2, a suíte contém 8 testes unitários da Etapa 1, 16
+da Etapa 2 e 45 testes de integração, divididos em 37 cenários de domínio/banco
+e 8 guardas de segurança. A validação final aprovou 24/24 testes unitários,
+45/45 de integração e 69/69 pelo agregador `test:all`.
+
+## 33. Auth.js Credentials com sessão JWT, sem adapter
+
+**Decisão:** usar Auth.js v5 beta (`next-auth` `5.0.0-beta.32`) com provider
+`Credentials`, estratégia de sessão `JWT` e `AUTH_SECRET` obrigatório com pelo
+menos 32 caracteres. Não usar adapter nem criar tabelas paralelas de conta,
+sessão ou token nesta etapa.
+
+**Por quê:** o domínio já possui `User` e telefone único. O login necessário é
+direto e controlado pelo AgroZap; introduzir outro modelo de identidade agora
+duplicaria a fonte de verdade sem resolver uma necessidade atual.
+
+**Consequência:** a migration
+`20260807150000_stage_2_authentication` acrescenta somente
+`User.passwordHash String?`. JWT e sessão carregam apenas o ID necessário do
+usuário; dados de autorização nunca são congelados no token. Como a versão do
+Auth.js é beta, upgrades devem revisar changelog e testes antes de atualizar.
+
+## 34. Senhas usam bcrypt com limites explícitos
+
+**Decisão:** gerar e comparar hashes com `bcryptjs` `3.0.3`, custo 12, aceitando
+senhas de 10 a 128 caracteres e recusando também qualquer entrada que exceda o
+limite seguro de 72 bytes do bcrypt.
+
+**Por quê:** validar somente caracteres permitiria que duas entradas longas
+fossem tratadas como iguais após truncamento silencioso. Um custo único também
+evita hashes criados com parâmetros inconsistentes.
+
+**Consequência:** somente `passwordHash` é persistido. Senhas em texto puro não
+entram em banco, fixtures, commits ou documentação. Quando uma conta não existe
+ou não possui hash, o login ainda executa uma comparação contra um hash bcrypt
+aleatório de descarte do mesmo custo e devolve a mesma falha genérica. O script
+`auth:dev-password` gera uma senha temporária aleatória, atua somente contra o
+banco local chamado exatamente `agrozap`, bloqueia overrides de URL para
+`host`, `hostaddr`, `database` e `dbname`, e a exibe uma única vez.
+
+## 35. Toda sessão revalida o usuário atual no banco
+
+**Decisão:** tratar o JWT como prova de sessão, não como fotografia permanente
+da autorização. `getCurrentUser` usa o ID da sessão para buscar novamente um
+`User` com `deactivatedAt = null`.
+
+**Por quê:** uma pessoa desativada depois do login não deve conservar acesso
+até o JWT expirar.
+
+**Consequência:** layouts e actions protegidos usam `requireCurrentUser`. Nome,
+papel, propriedade e capacidades atuais vêm do PostgreSQL, não de campos
+confiados ao navegador ou mantidos indefinidamente no token.
+
+## 36. O cookie de propriedade ativa é um ponteiro revalidado
+
+**Decisão:** guardar o ID candidato em `agrozap_active_property` com
+`HttpOnly`, `SameSite=Lax`, `Secure` em produção e `Path=/`.
+
+**Por quê:** a seleção precisa sobreviver à navegação, mas um cookie pode ficar
+obsoleto ou ser manipulado. Ele não prova que o usuário pertence à propriedade.
+
+**Consequência:** `resolveActivePropertyContext` aceita o ID somente se usuário
+e propriedade continuam ativos e o `PropertyMember` existe. Ausência ou falha
+leva a `/propriedades`. O cliente recebe uma projeção do contexto para UX, sem
+se tornar autoridade de autorização.
+
+## 37. Papéis são traduzidos em capacidades centralizadas
+
+**Decisão:** concentrar em `property-role-policy.ts` as capacidades
+`READ_PROPERTY`, `CREATE_AREA`, `CREATE_PRODUCT`, `CREATE_RECORD`, `MOVE_STOCK`,
+`MANAGE_TEAM`, `ADJUST_STOCK`, `REVERSE_STOCK` e `VIEW_AUDIT`.
+
+**Por quê:** espalhar comparações como `role === "OWNER"` por páginas e actions
+facilitaria divergências. Uma política central torna as permissões revisáveis e
+testáveis.
+
+**Consequência:** `OWNER` e `MANAGER` possuem todas as capacidades nesta etapa;
+`EMPLOYEE` possui leitura, criação de registro e movimentação de estoque;
+`VIEWER` possui somente leitura. Regras mais restritas da gestão de equipe são
+avaliadas além da capacidade geral `MANAGE_TEAM`.
+
+## 38. Gestão de equipe protege hierarquia, identidade e último OWNER
+
+**Decisão:** permitir que `OWNER` administre todos os papéis e que `MANAGER`
+administre apenas `EMPLOYEE` e `VIEWER`. Proibir autogerenciamento e qualquer
+mudança que deixe a propriedade sem ao menos um `OWNER`.
+
+**Por quê:** capacidade genérica para equipe não deve permitir escalada de
+privilégio, autoexclusão acidental ou uma propriedade sem responsável máximo.
+
+**Consequência:** adicionar membro, trocar papel e remover vínculo revalidam o
+ator dentro de transação `Serializable`. A checagem de último proprietário e o
+`AuditLog` participam da mesma transação, com retry limitado em conflitos. As
+ações registradas são `PROPERTY_MEMBER_ADDED`,
+`PROPERTY_MEMBER_ROLE_CHANGED` e `PROPERTY_MEMBER_REMOVED`.
+
+## 39. O localStorage rural é isolado por propriedade
+
+**Decisão:** salvar áreas, anotações e produtos em
+`agrozap-mvp-data:<propertyId>`, mantendo `agrozap-settings` como preferência
+visual local.
+
+**Por quê:** depois que uma pessoa pode alternar propriedades, uma chave rural
+global misturaria dados locais de escopos diferentes.
+
+**Consequência:** a antiga chave `agrozap-mvp-data` é copiada no máximo uma vez
+para a primeira propriedade aberta após a mudança. Um marcador guarda qual
+propriedade recebeu a migração, e o legado não é apagado. Essa ponte não envia
+áreas, anotações nem produtos ao PostgreSQL; importação ou descarte definitivo
+pertence à Etapa 3.
+
+## 40. Proxy e Context de cliente não são fronteiras de segurança
+
+**Decisão:** usar `src/proxy.ts` para checagem otimista de login e
+`PropertyAccessContext` para adaptar a interface, mas repetir toda decisão
+sensível em layout, Server Action ou service no servidor.
+
+**Por quê:** estado e código executados no navegador podem ser alterados. O JWT
+também não contém participação ou capacidades atuais.
+
+**Consequência:** esconder botão melhora a experiência, mas não concede nem
+revoga permissão. Escritas de equipe já usam o contexto autenticado e a política
+do servidor; futuras escritas rurais devem seguir a mesma regra na Etapa 3.
+
+## 41. Mitigação temporal não substitui controles distribuídos de login
+
+**Decisão:** reduzir enumeração temporal com uma comparação bcrypt de descarte
+para telefone inexistente ou conta sem senha, mantendo rate limiting distribuído
+e revogação versionada de JWT fora do escopo da Etapa 2.
+
+**Por quê:** igualar o trabalho criptográfico elimina uma diferença simples
+entre caminhos, mas limites coordenados entre várias instâncias e revogação
+imediata após troca de senha exigem infraestrutura e política próprias.
+
+**Consequência:** respostas de credenciais permanecem genéricas. A aplicação
+deve adicionar rate limiting na camada de implantação antes de exposição ampla
+e planejar uma versão de sessão ou credencial se precisar invalidar todos os
+JWTs imediatamente após troca de senha. Enquanto isso, a consulta do `User`
+ativo em cada contexto protegido já revoga o acesso de contas desativadas,
+atendendo ao requisito desta etapa.

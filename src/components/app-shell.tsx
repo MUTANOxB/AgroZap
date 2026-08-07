@@ -3,8 +3,12 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
 import { usePathname } from "next/navigation";
+import { logoutAction } from "@/app/(authenticated)/actions";
 import { useAgroApp, type UsageMode } from "@/context/AgroAppContext";
+import { usePropertyAccess } from "@/context/PropertyAccessContext";
+import { getRoleLabel } from "@/services/autorizacao/property-role-policy";
 import type { NavigationItem } from "@/types/navigation";
 
 const navigation: NavigationItem[] = [
@@ -12,11 +16,27 @@ const navigation: NavigationItem[] = [
   { href: "/talhoes", label: "Área cultivada" },
   { href: "/registros", label: "Anotações" },
   { href: "/estoque", label: "Estoque" },
+  { href: "/equipe", label: "Equipe" },
 ];
+
+function LogoutButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="mt-3 flex min-h-11 w-full items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+    >
+      {pending ? "Saindo..." : "Sair"}
+    </button>
+  );
+}
 
 export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
   const pathname = usePathname();
   const { modoUso, setModoUso, isLoaded } = useAgroApp();
+  const { propertyName, role, userName } = usePropertyAccess();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   function selectMode(mode: UsageMode) {
@@ -63,21 +83,41 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
           id="main-navigation"
           className={`${isMenuOpen ? "block" : "hidden"} border-t border-white/10 px-4 pb-5 sm:px-6 md:block md:border-0 md:px-6 md:pb-6`}
         >
-          <nav className="grid gap-1.5 pt-4 md:pt-0">
-          {navigation.map((item) => (
+          <section className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-3.5 md:mt-0">
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-200">
+              Propriedade ativa
+            </p>
+            <p className="mt-1 truncate text-sm font-bold text-white" title={propertyName}>
+              {propertyName}
+            </p>
+            <p className="mt-0.5 text-xs text-emerald-200">
+              {getRoleLabel(role)}
+            </p>
             <Link
-              key={item.href}
-              href={item.href}
+              href="/propriedades"
               onClick={() => setIsMenuOpen(false)}
-              className={`relative rounded-xl px-3.5 py-3 text-sm font-medium text-emerald-50 transition hover:bg-white/8 ${
-                pathname === item.href
-                  ? "bg-white/12 text-white shadow-[inset_3px_0_0_#70cf13,0_6px_18px_rgba(0,0,0,0.08)]"
-                  : ""
-              }`}
+              className="mt-3 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition hover:border-white/25 hover:bg-white/10"
             >
-              {item.label}
+              Trocar propriedade
             </Link>
-          ))}
+          </section>
+
+          <nav className="mt-4 grid gap-1.5">
+            {navigation.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={pathname === item.href ? "page" : undefined}
+                onClick={() => setIsMenuOpen(false)}
+                className={`relative rounded-xl px-3.5 py-3 text-sm font-medium text-emerald-50 transition hover:bg-white/8 ${
+                  pathname === item.href
+                    ? "bg-white/12 text-white shadow-[inset_3px_0_0_#70cf13,0_6px_18px_rgba(0,0,0,0.08)]"
+                    : ""
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
           </nav>
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-black/10 p-3.5">
@@ -107,6 +147,18 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>) {
                 : "Para registrar rápido, sem complicação."}
             </p>
           </div>
+
+          <section className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-3.5">
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-200">
+              Usuário
+            </p>
+            <p className="mt-1 truncate text-sm font-bold text-white" title={userName}>
+              {userName}
+            </p>
+            <form action={logoutAction}>
+              <LogoutButton />
+            </form>
+          </section>
         </div>
       </aside>
 

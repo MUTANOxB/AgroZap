@@ -12,14 +12,26 @@ import {
   recentActivities,
   stockItems,
   upcomingTasks,
+  type DashboardIconName,
   type SummaryMetric,
 } from "@/data/dashboardMock";
 import { useAgroApp } from "@/context/AgroAppContext";
+import { usePropertyAccess } from "@/context/PropertyAccessContext";
+import type { Capability } from "@/services/autorizacao/property-role-policy";
+
+type QuickAction = {
+  label: string;
+  detail: string;
+  href: string;
+  icon: DashboardIconName;
+  capability: Capability;
+};
 
 // A página apenas organiza as seções. Cada bloco visual e seus dados ficam
 // separados para facilitar manutenção, testes e estudo do projeto.
 export default function DashboardPage() {
   const { areas, anotacoes, produtos, isModoCompleto } = useAgroApp();
+  const { can, propertyName, userName } = usePropertyAccess();
   const lowStockCount = produtos.filter(
     (product) =>
       product.minimumStock !== null &&
@@ -37,30 +49,32 @@ export default function DashboardPage() {
     { label: "Estoque baixo", value: String(lowStockCount), detail: "Produtos que pedem atenção", icon: "alert", tone: "bg-rose-100 text-rose-700", href: "/estoque" },
   ];
 
-  const quickActions = [
-    { label: "Anotar serviço feito", detail: "Registre o que aconteceu", href: "/registros", icon: "activity" as const },
-    { label: "Cadastrar área", detail: "Adicione um local da propriedade", href: "/talhoes", icon: "area" as const },
-    { label: "Cadastrar produto", detail: "Inclua um item no estoque", href: "/estoque", icon: "package" as const },
-    { label: "Ver estoque baixo", detail: `${lowStockCount} ${lowStockCount === 1 ? "produto precisa" : "produtos precisam"} de atenção`, href: "/estoque", icon: "alert" as const },
-  ];
+  const quickActions = ([
+    { label: "Anotar serviço feito", detail: "Registre o que aconteceu", href: "/registros", icon: "activity", capability: "CREATE_RECORD" },
+    { label: "Cadastrar área", detail: "Adicione um local da propriedade", href: "/talhoes", icon: "area", capability: "CREATE_AREA" },
+    { label: "Cadastrar produto", detail: "Inclua um item no estoque", href: "/estoque", icon: "package", capability: "CREATE_PRODUCT" },
+    { label: "Ver estoque baixo", detail: `${lowStockCount} ${lowStockCount === 1 ? "produto precisa" : "produtos precisam"} de atenção`, href: "/estoque", icon: "alert", capability: "READ_PROPERTY" },
+  ] satisfies QuickAction[]).filter((action) => can(action.capability));
+  const firstName = userName.trim().split(/\s+/)[0] || userName;
 
   return (
     <div className="mx-auto max-w-[1500px]">
       <header className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <div className="mb-2 flex items-center gap-2 text-sm font-bold text-emerald-800">
+          <div
+            className="mb-2 flex max-w-full items-center gap-2 text-sm font-bold text-emerald-800"
+            title={propertyName}
+          >
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-            Fazenda Santa Helena
+            <span className="truncate">{propertyName}</span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-            {isModoCompleto
-              ? "Resumo da propriedade"
-              : "Controle sua propriedade de um jeito simples."}
+            Olá, {firstName}
           </h1>
           <p className="mt-1 text-slate-500">
             {isModoCompleto
               ? "Veja os principais números, serviços e pendências da propriedade."
-              : "Anote, controle e acompanhe tudo no campo, sem complicação."}
+              : "Controle sua propriedade de um jeito simples, sem complicação."}
           </p>
         </div>
         <div className="ag-card flex items-center gap-2 self-start px-4 py-2.5 text-sm font-medium text-slate-600 sm:self-auto">

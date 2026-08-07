@@ -4,40 +4,54 @@ Este documento é um guia simples para estudar o projeto. Você não precisa
 entender tudo de uma vez. A ideia é saber onde cada parte está e acompanhar o
 caminho dos dados aos poucos.
 
-> **Importante:** existem dois caminhos de dados durante a migração. As telas
-> ainda usam Context e `localStorage`. O schema Prisma e os services formam a
-> nova base do servidor, mas ainda não são chamados pelas páginas.
+> **Importante:** a Etapa 2 colocou autenticação, propriedade ativa e equipe no
+> PostgreSQL. Áreas, anotações e produtos das telas continuam temporariamente
+> no Context e no `localStorage`, agora separados por propriedade. Portanto,
+> existem três caminhos que não devem ser confundidos.
 
-### Visão rápida dos dois caminhos
+### Visão rápida dos três caminhos
 
-**ATUAL — usado pela interface:**
-
-```text
-Página client
-    ↓
-AgroAppContext
-    ↓
-localStorage do navegador
-    ↓
-React atualiza as páginas
-```
-
-**EM CONSTRUÇÃO — fundação do servidor:**
+**ATUAL — identidade, propriedade e equipe no servidor:**
 
 ```text
-Página
+Página, layout ou Server Action
     ↓
-API/Server ainda não criada
-    ↓
-Service com regra de negócio
+Auth.js + usuário atual + contexto da propriedade + política/equipe
     ↓
 Prisma
     ↓
 PostgreSQL
 ```
 
-O segundo fluxo descreve o destino da arquitetura. Não significa que um
-cadastro feito hoje na tela já esteja chegando ao PostgreSQL.
+**ATUAL — cadastros rurais usados pela interface:**
+
+```text
+Página client
+    ↓
+PropertyAccessContext (UX) + AgroAppContext
+    ↓
+agrozap-mvp-data:<propertyId> no localStorage
+    ↓
+React atualiza as páginas
+```
+
+**PRÓXIMA ETAPA — ligar os cadastros rurais à fundação existente:**
+
+```text
+Página
+    ↓
+Server Action ou Route Handler autorizado
+    ↓
+Service rural com regra de negócio
+    ↓
+Prisma
+    ↓
+PostgreSQL
+```
+
+O primeiro fluxo já atende login, seleção de propriedade e equipe. O segundo
+mantém o MVP rural funcionando no navegador. O terceiro descreve a Etapa 3 e
+não significa que um cadastro rural feito hoje já esteja chegando ao banco.
 
 ## 1. Estrutura geral do projeto
 
@@ -52,18 +66,23 @@ AgroZap/
 │   └── seed.ts           Dados fictícios para desenvolvimento
 ├── tests/
 │   └── integration/      Runner seguro e testes com PostgreSQL real
+├── scripts/
+│   └── auth-dev-password.ts  Senha temporária somente para banco local
 ├── public/
 │   └── brand/            Arquivos da marca AgroZap
 ├── src/
-│   ├── app/              Páginas, layout e estilos gerais
+│   ├── app/              Rotas públicas, autenticadas e por propriedade
 │   ├── components/       Partes visuais reutilizáveis
-│   ├── context/          Ponte temporária com o localStorage
+│   ├── context/          Projeção de acesso e ponte rural local
 │   ├── data/             Dados de demonstração da interface
 │   ├── generated/prisma/ Prisma Client gerado automaticamente
 │   ├── hooks/            Lógicas reutilizáveis dos componentes
 │   ├── lib/              Conexão Prisma e funções auxiliares
-│   ├── services/         Regras de negócio do novo servidor
-│   └── types/            Tipos temporários usados pelas telas
+│   ├── services/         Auth, autorização, equipe e domínio rural
+│   ├── types/            Tipos temporários usados pelas telas
+│   ├── auth.config.ts    Configuração compartilhada do Auth.js
+│   ├── auth.ts           Credentials e callbacks da sessão
+│   └── proxy.ts          Checagem otimista das rotas protegidas
 ├── .env.example          Exemplo sem credenciais reais
 ├── prisma.config.ts      Configuração de schema, migration e seed
 ├── package.json          Dependências e comandos do projeto
@@ -81,18 +100,31 @@ Next.js.
 Cada pasta com um arquivo `page.tsx` representa uma página:
 
 ```text
-src/app/dashboard/page.tsx  → /dashboard
-src/app/talhoes/page.tsx    → /talhoes
-src/app/registros/page.tsx  → /registros
-src/app/estoque/page.tsx    → /estoque
+src/app/login/page.tsx                                      → /login
+src/app/(authenticated)/propriedades/page.tsx              → /propriedades
+src/app/(authenticated)/(property)/dashboard/page.tsx      → /dashboard
+src/app/(authenticated)/(property)/talhoes/page.tsx        → /talhoes
+src/app/(authenticated)/(property)/registros/page.tsx      → /registros
+src/app/(authenticated)/(property)/estoque/page.tsx        → /estoque
+src/app/(authenticated)/(property)/equipe/page.tsx         → /equipe
 ```
+
+Pastas entre parênteses são grupos de rota do Next.js: organizam layouts e
+proteções, mas não aparecem no endereço. `(authenticated)` exige um usuário
+atual; `(property)` exige também uma propriedade ativa autorizada.
 
 Outros arquivos importantes:
 
-- `src/app/layout.tsx`: envolve todas as páginas com o contexto e o layout.
+- `src/app/layout.tsx`: define HTML, fonte, metadados e estilos globais, sem
+  exigir login.
+- `src/app/(authenticated)/layout.tsx`: revalida o usuário ativo.
+- `src/app/(authenticated)/(property)/layout.tsx`: revalida a propriedade,
+  monta os Contexts e o `AppShell`.
 - `src/app/page.tsx`: redireciona a página inicial para `/dashboard`.
 - `src/app/globals.css`: contém estilos gerais usados pelo sistema inteiro.
 - `src/app/api/clima/route.ts`: rota interna que consulta o clima real.
+- `src/app/api/auth/[...nextauth]/route.ts`: endpoints de sessão do Auth.js.
+- arquivos `actions.ts`: Server Actions de login, logout, seleção e equipe.
 
 ### Onde fica a identidade visual
 
@@ -153,6 +185,10 @@ AgroZap:
 - nome do sistema;
 - menu de navegação;
 - menu adaptado para celular;
+- usuário, propriedade ativa e papel atuais;
+- link para trocar a propriedade;
+- link para a equipe;
+- ação de logout;
 - seletor de Modo Simples e Modo Completo;
 - espaço onde cada página aparece.
 
@@ -172,12 +208,18 @@ cultivada, Anotações e Estoque. Isso mantém a identidade visual consistente.
 
 ## 4. Para que serve `src/context`
 
-O principal arquivo dessa pasta é:
+Os dois arquivos principais dessa pasta são:
 
-`src/context/AgroAppContext.tsx`
+- `src/context/PropertyAccessContext.tsx`;
+- `src/context/AgroAppContext.tsx`.
 
-O Context funciona como uma memória compartilhada do aplicativo. Ele permite
-que páginas diferentes usem os mesmos dados.
+O `PropertyAccessContext` leva para os componentes client a projeção que o
+servidor já resolveu: usuário, propriedade, papel e capacidades. Seu método
+`can()` serve para adaptar botões e formulários. Ele não autoriza uma operação;
+qualquer escrita precisa revalidar tudo no servidor.
+
+O `AgroAppContext` funciona como uma memória compartilhada dos cadastros rurais.
+Ele permite que páginas diferentes usem os mesmos dados locais.
 
 Por exemplo:
 
@@ -200,11 +242,15 @@ O contexto guarda:
 
 O hook `useAgroApp()` permite que uma página acesse tudo isso.
 
+O provider recebe `activePropertyId` do layout protegido. Áreas, anotações e
+produtos são lidos e salvos em `agrozap-mvp-data:<propertyId>`. A preferência
+visual continua em `agrozap-settings`.
+
 ## 5. Para que servem as telas
 
 ### Início
 
-Arquivo: `src/app/dashboard/page.tsx`
+Arquivo: `src/app/(authenticated)/(property)/dashboard/page.tsx`
 
 Apresenta um resumo da propriedade.
 
@@ -272,7 +318,7 @@ interface, será necessário passar esses parâmetros no `fetch` do
 
 ### Área cultivada
 
-Arquivo: `src/app/talhoes/page.tsx`
+Arquivo: `src/app/(authenticated)/(property)/talhoes/page.tsx`
 
 Permite cadastrar e listar locais da propriedade.
 
@@ -281,7 +327,7 @@ observação, cultura, safra, solo, irrigação e produtividade estimada.
 
 ### Anotações
 
-Arquivo: `src/app/registros/page.tsx`
+Arquivo: `src/app/(authenticated)/(property)/registros/page.tsx`
 
 Guarda o histórico do que aconteceu na propriedade.
 
@@ -298,7 +344,7 @@ alguma validação falhar, nenhuma das duas partes é salva.
 
 ### Estoque
 
-Arquivo: `src/app/estoque/page.tsx`
+Arquivo: `src/app/(authenticated)/(property)/estoque/page.tsx`
 
 Permite cadastrar produtos e acompanhar suas quantidades.
 
@@ -314,7 +360,7 @@ Uma boa ordem inicial é:
 1. `src/app/layout.tsx`
 2. `src/components/app-shell.tsx`
 3. `src/app/globals.css`
-4. `src/app/dashboard/page.tsx`
+4. `src/app/(authenticated)/(property)/dashboard/page.tsx`
 5. `src/components/dashboard/SummaryCard.tsx`
 6. `src/components/dashboard/SimpleDashboardDetails.tsx`
 7. `src/components/dashboard/WeatherCard.tsx`
@@ -322,9 +368,9 @@ Uma boa ordem inicial é:
 9. `src/app/api/clima/route.ts`
 10. `src/types/clima.ts`
 11. `src/data/dashboardMock.ts`
-12. `src/app/talhoes/page.tsx`
-13. `src/app/registros/page.tsx`
-14. `src/app/estoque/page.tsx`
+12. `src/app/(authenticated)/(property)/talhoes/page.tsx`
+13. `src/app/(authenticated)/(property)/registros/page.tsx`
+14. `src/app/(authenticated)/(property)/estoque/page.tsx`
 15. `src/context/AgroAppContext.tsx`
 
 Comece pelo layout para entender como o sistema é montado. Depois veja uma
@@ -342,7 +388,7 @@ Para estudar a aplicação da marca, siga esta ordem:
 2. abra `src/components/app-shell.tsx` para encontrar o logo no menu;
 3. abra `src/app/layout.tsx` para encontrar a fonte e o favicon;
 4. abra `src/app/globals.css` para encontrar as cores da marca;
-5. abra `src/app/dashboard/page.tsx` para ver a primeira impressão da tela
+5. abra `src/app/(authenticated)/(property)/dashboard/page.tsx` para ver a primeira impressão da tela
    Início.
 
 ## 7. Caminho de um dado no sistema
@@ -477,14 +523,17 @@ Na tela Início, a escolha funciona da mesma forma:
 ### Dia 1 — Entender layout e páginas
 
 - Abra `src/app/layout.tsx`.
-- Veja como `AgroAppProvider` e `AppShell` envolvem as páginas.
+- Compare com `src/app/(authenticated)/layout.tsx` e
+  `src/app/(authenticated)/(property)/layout.tsx`.
+- Veja como apenas o layout com propriedade ativa adiciona
+  `PropertyAccessProvider`, `AgroAppProvider` e `AppShell`.
 - Abra `src/components/app-shell.tsx`.
 - Observe os links do menu.
 - Compare as pastas de `src/app` com os endereços do navegador.
 
 ### Dia 2 — Entender formulários
 
-- Abra `src/app/talhoes/page.tsx`.
+- Abra `src/app/(authenticated)/(property)/talhoes/page.tsx`.
 - Localize `<form>`, `<input>`, `<select>` e o botão.
 - Procure `onChange` e `onSubmit`.
 - Veja como cada campo está ligado ao `formData`.
@@ -510,6 +559,8 @@ Na tela Início, a escolha funciona da mesma forma:
 - Depois procure `localStorage.setItem`.
 - Entenda que um trecho carrega e outro salva.
 - Veja por que o código espera `isLoaded` antes de salvar.
+- Observe que a chave rural inclui `activePropertyId` e que o legado global é
+  migrado no máximo uma vez.
 
 ### Dia 6 — Entender Modo Simples e Completo
 
@@ -772,36 +823,46 @@ O `AgroAppContext` ainda é a fonte das telas para:
 - produtos;
 - Modo Simples ou Completo.
 
-Ele continua salvando as chaves `agrozap-mvp-data` e `agrozap-settings` no
-navegador. A diferença desta etapa é que a mudança local de saldo chama
+Ele salva os cadastros na chave `agrozap-mvp-data:<propertyId>` e a preferência
+visual em `agrozap-settings`. A antiga chave global `agrozap-mvp-data` é
+preservada e copiada, no máximo uma vez, para a primeira propriedade aberta
+após a mudança. O marcador
+`agrozap-mvp-data:property-scope-migration:v1` impede que o mesmo legado seja
+replicado em várias propriedades. A mudança local de saldo também chama
 `calculateLocalStockBalance`, que rejeita uma retirada sem saldo.
 
-Na Etapa 1.1, `src/app/registros/page.tsx` também usa
+Desde a Etapa 1.1,
+`src/app/(authenticated)/(property)/registros/page.tsx` também usa
 `requireValidLocalStockProduct` e `parseRequiredLocalStockQuantity`. Quando a
 anotação exige movimento, `adicionarAnotacaoComMovimentacao` valida o próximo
 saldo antes de alterar as listas. Assim não existe anotação sem o estoque
 obrigatório, nem estoque alterado sem a anotação correspondente.
 
-Essa proteção não transforma o `localStorage` em banco. Ela não cria movimento,
-auditoria, usuário ou transação PostgreSQL.
+Esse isolamento e essa proteção não transformam o `localStorage` em banco. As
+áreas, anotações e produtos da interface não criam movimento, auditoria ou
+transação PostgreSQL. Usuário, propriedade e equipe, por outro lado, já usam o
+banco pela arquitetura da Etapa 2.
 
 ## 16. Dados locais, seed e banco são fontes diferentes
 
-Durante a transição existem dois conjuntos independentes de demonstração:
+Durante a transição existem conjuntos independentes de demonstração:
 
-- os exemplos do Context, usados quando o navegador ainda não possui dados;
+- os exemplos do Context, usados separadamente por propriedade quando o
+  navegador ainda não possui dados naquela chave;
 - os exemplos do seed, inseridos no PostgreSQL quando `npm run db:seed` é
   executado.
 
-Rodar o seed não altera o navegador. Cadastrar pela tela não altera o seed nem
-o PostgreSQL. Uma etapa futura deverá decidir como importar os dados locais e
-como evitar duplicação.
+Rodar o seed não altera os cadastros rurais do navegador. Cadastrar área,
+anotação ou produto pela tela não altera o seed nem o PostgreSQL. Login,
+propriedade ativa e equipe já consultam o banco. A Etapa 3 deverá decidir como
+importar ou descartar dados locais sem duplicação.
 
 ## 17. Comandos importantes
 
 ```bash
 npm run dev          # executa a interface com hot reload
 npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
+npm run test:stage2  # testa autenticação e política de papéis
 npm run test:integration # recria agrozap_test e testa o PostgreSQL real
 npm run test:all     # executa testes unitários e de integração
 npm run typecheck    # verifica os tipos TypeScript
@@ -811,27 +872,35 @@ npm run db:validate  # valida o schema Prisma
 npm run db:generate  # gera o Prisma Client
 npm run db:migrate   # aplica/cria migrations no ambiente de desenvolvimento
 npm run db:seed      # carrega dados fictícios no PostgreSQL
+npm run auth:dev-password -- <telefone> # gera senha temporária só no banco local
 ```
 
 `db:generate`, `db:validate` e o build não precisam abrir conexão e podem rodar
 sem `DATABASE_URL`. `db:migrate`, `db:seed` e o uso real dos services precisam
 de uma URL válida. O arquivo `.env` está ignorado pelo Git; `.env.example`
-contém apenas o nome da variável.
+contém apenas nomes e exemplos sem credenciais. As rotas autenticadas também
+exigem um `AUTH_SECRET` aleatório com pelo menos 32 caracteres. O valor real e a
+senha temporária nunca devem ser enviados ao Git ou copiados para a
+documentação.
 
 ## 18. O que estudar nesta nova etapa
 
 Uma ordem recomendada é:
 
 1. leia `PROJETO.md` para entender objetivo e status;
-2. compare os dois fluxos no começo deste mapa;
-3. abra `prisma/schema.prisma` e localize `Property`;
-4. siga suas relações até `StockProduct` e `StockMovement`;
-5. leia `src/services/estoque/local-stock.ts`, usado pelo MVP;
-6. leia `src/services/estoque/stock-movement.service.ts`, preparado para o
-   banco;
-7. compare os dois caminhos sem confundi-los;
-8. consulte `docs/DECISOES.md` para saber por que cada escolha foi feita;
-9. consulte `docs/HISTORICO_MUDANCAS.md` para saber o que ainda não está pronto.
+2. compare os três fluxos no começo deste mapa;
+3. leia `src/auth.config.ts`, `src/auth.ts` e
+   `src/services/auth/current-user.ts`;
+4. siga `src/app/(authenticated)/(property)/layout.tsx` até
+   `requireActivePropertyContext`;
+5. compare `PropertyAccessContext` com
+   `property-role-policy.ts`, lembrando que somente o servidor autoriza;
+6. leia `src/services/equipe/team.service.ts` e depois as actions de `/equipe`;
+7. abra `prisma/schema.prisma`, localize `User`, `Property` e `PropertyMember`;
+8. compare `src/services/estoque/local-stock.ts`, usado pelo MVP, com
+   `src/services/estoque/stock-movement.service.ts`, já preparado para o banco;
+9. consulte `docs/DECISOES.md` e `docs/HISTORICO_MUDANCAS.md` para separar o que
+   está concluído do que pertence à Etapa 3.
 
 Ao investigar uma regra do servidor, acrescente duas perguntas às quatro do
 MVP:
@@ -884,12 +953,12 @@ Os services não oferecem update ou delete normal para `StockMovement` ou
 `AuditLog`. Ajustes e correções geram novos registros. A Etapa 1.1 formaliza
 essa regra sem adicionar trigger complexo ao PostgreSQL.
 
-## 20. Regras obrigatórias para a futura API
+## 20. Fronteira de autenticação atual e regras para a API rural
 
 ### Isolamento por propriedade
 
-O navegador não será autoridade para escolher a propriedade. Um `propertyId`
-recebido na requisição será aceito somente depois deste caminho:
+O navegador não é autoridade para escolher a propriedade. O cookie contém
+somente um ID candidato, aceito depois deste caminho:
 
 ```text
 session.user
@@ -902,19 +971,23 @@ Service
 ```
 
 Isso impede que alguém da Fazenda A altere manualmente uma requisição para
-agir na Fazenda B. A regra está documentada, mas sessão e autenticação ainda
-não foram implementadas.
+agir na Fazenda B. Sessão, login e contexto de propriedade já implementam essa
+regra para as rotas e actions da Etapa 2. A futura API rural deverá reutilizar
+o contexto revalidado, sem aceitar um `propertyId` solto do cliente.
 
 ### Números em português do Brasil
 
-A camada de entrada converterá um texto brasileiro como `"2,5"` para o valor
+A camada de entrada rural converterá um texto brasileiro como `"2,5"` para o valor
 canônico `"2.5"` antes de chamar os services. O domínio não receberá texto
 ambíguo, e uma IA futura nunca enviará valores não validados diretamente ao
-banco. Essa normalização completa ainda não foi implementada nesta etapa.
+banco. Essa normalização rural completa ainda pertence à Etapa 3. A
+normalização de telefone do login já existe e é uma regra separada: formatos
+brasileiros aceitos são convertidos para `+55` seguido de DDD e número.
 
-## 21. Como funciona a validação PostgreSQL da Etapa 1.2
+## 21. Como funciona a validação PostgreSQL atual
 
-Os testes reais ficam em `tests/integration/`:
+O runner criado na Etapa 1.2 também executa os cenários da Etapa 2. Os testes
+reais ficam em `tests/integration/`:
 
 - `run.ts`: executa o preflight de segurança, prepara o banco, aplica
   migrations, executa o seed duas vezes, compara as identidades e inicia os
@@ -925,7 +998,9 @@ Os testes reais ficam em `tests/integration/`:
 - `fixtures.ts`: cria propriedades, usuários, produtos e áreas exclusivos para
   cada cenário;
 - `foundation.integration.test.ts`: contém dezessete cenários de domínio e
-  PostgreSQL real.
+  PostgreSQL real;
+- `stage2.integration.test.ts`: cobre autenticação, propriedade ativa, equipe,
+  concorrência, auditoria e isolamento da Etapa 2.
 
 ### Proteção do banco de desenvolvimento
 
@@ -964,6 +1039,8 @@ O teste de integração não copia a lógica do service. Ele chama o service rea
 consulta o PostgreSQL para conferir o estado confirmado. A suíte cobre:
 
 - migrations desde banco vazio e seed idempotente;
+- login por credenciais, usuário desativado e propriedade ativa revalidada;
+- regras de equipe, último `OWNER`, autogerenciamento e auditorias atômicas;
 - saldo, movimento e auditoria na mesma transação;
 - rollback por estoque insuficiente, usuário desativado ou propriedade
   arquivada;
@@ -978,8 +1055,10 @@ consulta o PostgreSQL para conferir o estado confirmado. A suíte cobre:
 - `CHECK constraints` como última barreira contra saldos e movimentos
   inválidos.
 
-Ao todo, `test:integration` aprovou 25 de 25 casos: 17 de domínio/banco e 8 de
-segurança. `test:stage1.1` aprovou 8 de 8 testes unitários.
+A suíte implementada totaliza 45 casos de integração: 37 de domínio/banco
+(fundação e Etapa 2) e 8 guardas de segurança. `test:stage1.1` contém 8 testes
+unitários, e `test:stage2`, 16. A validação final aprovou 24/24 testes unitários,
+45/45 de integração e 69/69 pelo agregador `test:all`.
 
 ### Regressão de quantidade zero
 
@@ -988,3 +1067,90 @@ services agora usam `greaterThan(0)`: saldo inicial zero não cria movimento de
 abertura, e uma movimentação de quantidade zero é recusada com
 `INVALID_QUANTITY` antes de chegar ao banco. Os dois comportamentos possuem
 cobertura de regressão.
+
+## 22. Mapa da Etapa 2
+
+### Login e sessão
+
+Os arquivos centrais são:
+
+- `src/auth.config.ts`: segredo, estratégia JWT, página de login e caminhos
+  protegidos;
+- `src/auth.ts`: provider `Credentials`, telefone/senha e callbacks que mantêm
+  somente o ID necessário na sessão;
+- `src/services/auth/phone.ts`: normaliza telefone brasileiro para `+55`;
+- `src/services/auth/password.ts`: limites e bcrypt custo 12;
+- `src/services/auth/credentials.service.ts`: busca a conta e valida a senha;
+- `src/services/auth/current-user.ts`: reconsulta o usuário ativo;
+- `src/app/api/auth/[...nextauth]/route.ts`: expõe os handlers do Auth.js;
+- `src/proxy.ts`: checagem otimista de JWT antes das rotas protegidas.
+
+```text
+/login envia telefone e senha
+        ↓
+normalizePhone produz +55...
+        ↓
+Credentials busca User e compara bcrypt
+        ↓
+JWT guarda o ID do usuário
+        ↓
+requireCurrentUser reconsulta User com deactivatedAt = null
+```
+
+Para uma conta inexistente ou ainda sem `passwordHash`, o fluxo também compara
+contra um hash bcrypt aleatório de descarte do mesmo custo. A resposta continua
+genérica, reduzindo uma diferença temporal simples sem prometer proteção total
+contra enumeração.
+
+Auth.js está na versão v5 beta (`next-auth` `5.0.0-beta.32`), usa sessão `JWT`
+e não usa adapter. A migration
+`prisma/migrations/20260807150000_stage_2_authentication/migration.sql`
+acrescenta apenas `passwordHash` opcional a `User`.
+
+### Propriedade ativa
+
+Os arquivos em `src/services/propriedades/` separam três responsabilidades:
+
+- `active-property-cookie.ts`: lê, grava e limpa
+  `agrozap_active_property` com `HttpOnly`, `SameSite=Lax`, `Secure` em produção
+  e `Path=/`;
+- `active-property.service.ts`: confirma no PostgreSQL que usuário, propriedade
+  e vínculo continuam ativos;
+- `active-property-context.ts`: combina sessão e cookie ou redireciona para
+  `/propriedades`.
+
+A página e as actions de seleção ficam em
+`src/app/(authenticated)/propriedades/`. O cookie não contém nome, papel nem
+capacidades e nunca é suficiente sozinho.
+
+### Política e equipe
+
+`src/services/autorizacao/property-role-policy.ts` é a fonte central das
+capacidades:
+
+| Papel | Capacidades nesta etapa |
+| --- | --- |
+| `OWNER` | todas |
+| `MANAGER` | todas, com limites adicionais ao administrar equipe |
+| `EMPLOYEE` | `READ_PROPERTY`, `CREATE_RECORD`, `MOVE_STOCK` |
+| `VIEWER` | `READ_PROPERTY` |
+
+A tela fica em `src/app/(authenticated)/(property)/equipe/`, e as regras
+transacionais ficam em `src/services/equipe/team.service.ts`. O service
+revalida o ator, impede autogerenciamento, limita `MANAGER` a `EMPLOYEE` e
+`VIEWER`, e mantém pelo menos um `OWNER`. Adição, troca de papel, remoção e seu
+`AuditLog` usam a mesma transação `Serializable`, com retry limitado em conflito.
+
+### Limites de segurança conhecidos
+
+O helper `npm run auth:dev-password -- <telefone>` só aceita execução fora de
+produção contra PostgreSQL local e banco chamado exatamente `agrozap`. Ele
+recusa parâmetros de URL que tentem sobrescrever `host`, `hostaddr`, `database`
+ou `dbname`, valida o usuário ativo e mostra a senha temporária aleatória uma
+única vez.
+
+A Etapa 2 não inclui rate limiting distribuído de login nem revogação
+versionada dos JWTs depois de uma troca de senha. Esses controles exigem uma
+decisão de implantação posterior. A revalidação de `User.deactivatedAt` em cada
+contexto protegido já bloqueia contas desativadas e continua sendo a garantia
+exigida nesta etapa.

@@ -86,6 +86,15 @@ async function main() {
     process.env,
     testDatabase.connectionString,
   );
+  const domainTestEnvironment = {
+    ...testEnvironment,
+    NODE_OPTIONS: [
+      testEnvironment.NODE_OPTIONS,
+      "--conditions=react-server",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  };
   const origin =
     testDatabase.source === "derived"
       ? "derivada em memória"
@@ -130,8 +139,9 @@ async function main() {
       "--test",
       "--test-concurrency=1",
       "tests/integration/foundation.integration.test.ts",
+      "tests/integration/stage2.integration.test.ts",
     ],
-    testEnvironment,
+    domainTestEnvironment,
   );
 }
 

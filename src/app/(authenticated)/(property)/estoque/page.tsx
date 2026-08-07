@@ -7,6 +7,7 @@ import {
   type ProductUnit,
   type StockProduct,
 } from "@/context/AgroAppContext";
+import { usePropertyAccess } from "@/context/PropertyAccessContext";
 
 type StockForm = {
   name: string;
@@ -107,8 +108,10 @@ export default function EstoquePage() {
   /*
    * Os produtos vêm do AgroAppContext. Isso permite que uma anotação de compra
    * ou uso atualize a mesma lista mostrada nesta tela.
-   */
+  */
   const { produtos, adicionarProduto, isModoCompleto } = useAgroApp();
+  const { can } = usePropertyAccess();
+  const canCreateProduct = can("CREATE_PRODUCT");
 
   /*
    * O estado do formulário guarda temporariamente os valores digitados antes
@@ -132,6 +135,7 @@ export default function EstoquePage() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canCreateProduct) return;
 
     const newProduct: Omit<StockProduct, "id"> = {
       name: formData.name.trim(),
@@ -223,7 +227,8 @@ export default function EstoquePage() {
         />
       </section>
 
-      <section className="ag-form-section">
+      {canCreateProduct ? (
+        <section className="ag-form-section">
         <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">
             Cadastrar novo produto
@@ -412,7 +417,19 @@ export default function EstoquePage() {
             </button>
           </div>
         </form>
-      </section>
+        </section>
+      ) : (
+        <section
+          role="note"
+          className="mb-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 sm:p-5"
+        >
+          <p className="text-sm font-bold">Modo consulta</p>
+          <p className="mt-1 text-sm leading-6 text-emerald-800">
+            Você pode consultar os produtos e saldos desta propriedade, mas seu
+            papel não permite cadastrar produtos por esta tela.
+          </p>
+        </section>
+      )}
 
       <section className="mt-7">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-4">

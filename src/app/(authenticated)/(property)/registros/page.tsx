@@ -6,6 +6,7 @@ import {
   type Annotation,
   type AnnotationType,
 } from "@/context/AgroAppContext";
+import { usePropertyAccess } from "@/context/PropertyAccessContext";
 import { getStockErrorMessage } from "@/services/estoque/errors";
 import {
   parseRequiredLocalStockQuantity,
@@ -86,6 +87,9 @@ export default function RegistrosPage() {
     adicionarAnotacaoComMovimentacao,
     isModoCompleto,
   } = useAgroApp();
+  const { can } = usePropertyAccess();
+  const canCreateRecord = can("CREATE_RECORD");
+  const canMoveStock = can("MOVE_STOCK");
 
   /*
    * O estado do formulário reúne em um único objeto tudo o que está preenchido
@@ -93,8 +97,9 @@ export default function RegistrosPage() {
    */
   const [formData, setFormData] = useState<AnnotationForm>(emptyForm);
   const changesStock =
-    stockEntryTypes.includes(formData.type) ||
-    stockExitTypes.includes(formData.type);
+    canMoveStock &&
+    (stockEntryTypes.includes(formData.type) ||
+      stockExitTypes.includes(formData.type));
 
   /*
    * Esta função atualiza somente o campo alterado e mantém os demais valores
@@ -117,6 +122,7 @@ export default function RegistrosPage() {
    */
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canCreateRecord) return;
 
     const selectedProduct = isModoCompleto
       ? produtos.find(
@@ -195,7 +201,8 @@ export default function RegistrosPage() {
         </p>
       </header>
 
-      <section className="ag-form-section">
+      {canCreateRecord ? (
+        <section className="ag-form-section">
         <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">
             {isModoCompleto ? "Registrar nova anotação" : "Anotação rápida"}
@@ -499,7 +506,19 @@ export default function RegistrosPage() {
             </button>
           </div>
         </form>
-      </section>
+        </section>
+      ) : (
+        <section
+          role="note"
+          className="mb-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 sm:p-5"
+        >
+          <p className="text-sm font-bold">Modo consulta</p>
+          <p className="mt-1 text-sm leading-6 text-emerald-800">
+            Você pode consultar o histórico desta propriedade, mas seu papel não
+            permite criar novas anotações.
+          </p>
+        </section>
+      )}
 
       <section className="mt-7">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-4">

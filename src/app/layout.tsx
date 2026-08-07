@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope } from "next/font/google";
 import type { ReactNode } from "react";
-import { AppShell } from "@/components/app-shell";
-import { AgroAppProvider } from "@/context/AgroAppContext";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -26,11 +24,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className={manrope.variable}>
-        <AgroAppProvider>
-          <AppShell>{children}</AppShell>
-        </AgroAppProvider>
-      </body>
+      <body className={manrope.variable}>{children}</body>
     </html>
   );
 }

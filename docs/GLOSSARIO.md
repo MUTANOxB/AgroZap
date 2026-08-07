@@ -3,9 +3,10 @@
 Este glossário explica palavras usadas no projeto de forma simples. Os exemplos
 foram baseados no código atual do AgroZap.
 
-Durante a migração, algumas palavras descrevem o fluxo **ATUAL** das telas e
-outras descrevem a fundação de banco **EM CONSTRUÇÃO**. Sempre observe no
-exemplo se o dado está no `localStorage` ou no PostgreSQL.
+Durante a migração, autenticação, propriedade ativa e equipe já usam o
+PostgreSQL. Áreas, anotações e produtos das telas ainda usam `localStorage`,
+separado por propriedade, embora seus models e services de banco já existam.
+Sempre observe qual desses fluxos o exemplo descreve.
 
 ## React
 
@@ -25,8 +26,11 @@ junto com o React e oferece recursos como páginas e rotas.
 No projeto, o endereço de uma tela é definido pela pasta em `src/app`:
 
 ```text
-src/app/estoque/page.tsx → /estoque
+src/app/(authenticated)/(property)/estoque/page.tsx → /estoque
 ```
+
+As pastas entre parênteses organizam proteção e layout, mas não aparecem no
+endereço.
 
 ## Componente
 
@@ -48,19 +52,57 @@ do sistema.
 
 Exemplos:
 
-- `src/app/dashboard/page.tsx`: tela Início;
-- `src/app/talhoes/page.tsx`: tela Área cultivada;
-- `src/app/registros/page.tsx`: tela Anotações;
-- `src/app/estoque/page.tsx`: tela Estoque.
+- `src/app/login/page.tsx`: login;
+- `src/app/(authenticated)/propriedades/page.tsx`: seleção de propriedade;
+- `src/app/(authenticated)/(property)/dashboard/page.tsx`: tela Início;
+- `src/app/(authenticated)/(property)/talhoes/page.tsx`: Área cultivada;
+- `src/app/(authenticated)/(property)/registros/page.tsx`: Anotações;
+- `src/app/(authenticated)/(property)/estoque/page.tsx`: Estoque;
+- `src/app/(authenticated)/(property)/equipe/page.tsx`: Equipe.
 
 ## Layout
 
 Layout é a estrutura visual que envolve as páginas.
 
-No arquivo `src/app/layout.tsx`, o AgroZap adiciona o contexto e o menu ao redor
-do conteúdo de cada tela.
+`src/app/layout.tsx` envolve inclusive a página pública de login e define HTML,
+fonte e metadados. `src/app/(authenticated)/layout.tsx` exige usuário ativo.
+`src/app/(authenticated)/(property)/layout.tsx` exige propriedade autorizada e
+então adiciona os Contexts e o menu.
 
 O layout evita repetir o menu em todos os arquivos `page.tsx`.
+
+## Route group
+
+Route group é uma pasta entre parênteses no App Router do Next.js. Ela agrupa
+páginas sob um layout sem mudar o endereço público.
+
+No AgroZap, `(authenticated)` exige um usuário atual e `(property)` exige uma
+propriedade ativa. Por isso, o arquivo dentro de
+`(authenticated)/(property)/equipe/page.tsx` continua atendendo `/equipe`.
+
+## Server Component
+
+Server Component é um componente executado no servidor. Ele pode consultar
+sessão e banco sem enviar esse código ou essas credenciais ao navegador.
+
+Os layouts autenticados do AgroZap são Server Components: revalidam usuário e
+propriedade antes de renderizar os componentes client.
+
+## Server Action
+
+Server Action é uma função do servidor que um formulário pode chamar. Ela usa
+`"use server"` e permite validar a sessão, executar uma regra e redirecionar sem
+expor o Prisma ao navegador.
+
+Login, logout, seleção de propriedade e mudanças da equipe usam Server Actions.
+
+## Proxy do Next.js
+
+O arquivo `src/proxy.ts` faz uma checagem antecipada do JWT nas rotas
+protegidas. Ele pode redirecionar cedo uma navegação sem sessão.
+
+Essa checagem é otimista: layouts, actions e services ainda revalidam usuário,
+propriedade e permissão no servidor. O Proxy não é a autoridade final.
 
 ## useState
 
@@ -94,7 +136,7 @@ No `AgroAppContext.tsx`, ele é usado para:
 
 Context é uma memória compartilhada entre várias partes do aplicativo.
 
-O `AgroAppContext.tsx` guarda:
+O `AgroAppContext.tsx` guarda os dados rurais locais:
 
 - áreas;
 - anotações;
@@ -104,12 +146,21 @@ O `AgroAppContext.tsx` guarda:
 
 Assim, uma área cadastrada em Área cultivada pode ser usada na tela Anotações.
 
+O `PropertyAccessContext.tsx` possui outra função: leva para os componentes a
+projeção de usuário, propriedade, papel e capacidades já resolvida no servidor.
+Ele adapta a interface, mas não autoriza uma escrita.
+
 ## localStorage
 
 `localStorage` é um espaço de armazenamento do navegador.
 
 O AgroZap usa esse espaço para manter os cadastros e o modo de uso depois que a
-página é atualizada.
+página é atualizada. Áreas, anotações e produtos ficam na chave
+`agrozap-mvp-data:<propertyId>`; `agrozap-settings` guarda a preferência visual.
+
+A antiga chave global `agrozap-mvp-data` é copiada, no máximo uma vez, para a
+primeira propriedade aberta depois da mudança. Um marcador impede copiar o
+mesmo legado para várias propriedades, e a chave antiga é preservada.
 
 Esses dados ficam somente naquele navegador e computador. O `localStorage` não
 é um banco de dados.
@@ -440,6 +491,84 @@ O frontend usa essa rota em vez de chamar a Open-Meteo diretamente. Assim, a
 tradução das condições, o tratamento de erros e o cache ficam organizados em
 um único arquivo.
 
+Outra rota interna é `src/app/api/auth/[...nextauth]/route.ts`, que expõe os
+handlers necessários à sessão do Auth.js.
+
+## Auth.js
+
+Auth.js é a biblioteca usada para criar e ler a sessão de login. O AgroZap usa
+a versão v5 beta por meio do pacote `next-auth` `5.0.0-beta.32`.
+
+Nesta etapa ele usa sessão JWT e não usa adapter. Isso significa que não foram
+criadas tabelas paralelas de conta ou sessão; o domínio continua usando `User`.
+
+## Credentials provider
+
+`Credentials` é o modo de login no qual a própria aplicação recebe credenciais
+e decide se elas são válidas. No AgroZap, essas credenciais são telefone e
+senha.
+
+O provider normaliza o telefone, encontra o `User` e compara a senha com o hash.
+Se a conta não existe ou ainda não possui hash, ele compara com um hash bcrypt
+aleatório de descarte do mesmo custo antes de devolver a mesma falha genérica.
+Isso reduz enumeração temporal simples, mas não substitui rate limiting.
+
+## Sessão
+
+Sessão é a identificação mantida depois de um login válido. O JWT do AgroZap
+carrega somente o ID necessário do usuário.
+
+Antes de uma rota protegida usar essa identidade,
+`src/services/auth/current-user.ts` reconsulta o PostgreSQL e exige
+`deactivatedAt = null`. Assim, desativar o usuário bloqueia novos acessos mesmo
+se o JWT ainda não expirou.
+
+## JWT
+
+JWT é um token assinado usado pelo Auth.js para manter a sessão. Assinado não
+significa que todos os dados internos devem ser confiados para sempre: papel,
+propriedade e capacidades são lidos novamente do banco.
+
+A Etapa 2 não implementa uma versão de sessão para revogar imediatamente todos
+os JWTs depois de uma troca de senha. Essa é uma decisão de endurecimento
+posterior; a revalidação do usuário ativo já atende ao bloqueio de conta desta
+etapa.
+
+## AUTH_SECRET
+
+`AUTH_SECRET` é o segredo aleatório usado pelo Auth.js para proteger a sessão.
+O AgroZap exige pelo menos 32 caracteres. O valor real pertence ao `.env` local
+ou ao gerenciador de segredos da implantação e nunca deve aparecer em commit,
+log ou documentação.
+
+## Hash de senha
+
+Hash de senha é uma representação derivada que permite conferir uma senha sem
+guardar o texto original. `User.passwordHash` é opcional para manter usuários
+antigos até que uma senha seja configurada.
+
+O AgroZap usa `bcryptjs` `3.0.3` com custo 12. Aceita de 10 a 128 caracteres e
+também rejeita entradas acima de 72 bytes, pois o bcrypt truncaria o excedente.
+
+## Normalização de telefone
+
+Normalizar telefone é transformar formatos aceitos em uma forma única antes da
+busca. Um número brasileiro com DDD vira `+55` seguido apenas dos dígitos.
+
+A validação atual confirma estrutura e tamanho, não a posse real da linha nem a
+existência de uma conta no WhatsApp.
+
+## Cookie de propriedade ativa
+
+O cookie `agrozap_active_property` guarda somente o ID candidato da propriedade
+selecionada. `HttpOnly` impede leitura normal por JavaScript; `SameSite=Lax`
+reduz envios em navegações entre sites; `Secure` exige HTTPS em produção; e
+`Path=/` permite usar a seleção em todo o aplicativo.
+
+O cookie pode estar obsoleto ou ser manipulado. Por isso o servidor sempre
+confere usuário, propriedade e `PropertyMember` no PostgreSQL antes de aceitar
+o contexto.
+
 ## JSON
 
 JSON é um formato de texto usado para transportar dados organizados.
@@ -506,18 +635,20 @@ Usuário digita
 → useEffect salva os dados no localStorage
 ```
 
-Esse resumo continua correto para as telas atuais. Os conceitos abaixo
-explicam a fundação que substituirá esse armazenamento local em uma etapa
-futura.
+Esse resumo continua correto para os cadastros rurais atuais. Login, seleção de
+propriedade e equipe já seguem um fluxo do servidor explicado abaixo. A Etapa 3
+ligará também áreas, anotações e produtos ao banco.
 
 ## Banco de dados
 
 Banco de dados é um sistema preparado para guardar e consultar informações de
 forma organizada e durável.
 
-No AgroZap, o banco guardará propriedades, usuários, áreas, produtos,
-movimentações, anotações e auditorias. Diferente do `localStorage`, ele poderá
-ser acessado com segurança por diferentes usuários autorizados.
+No AgroZap, o banco já guarda propriedades, usuários, membros e auditorias de
+equipe. O schema e os services também representam áreas, produtos,
+movimentações e anotações, mas as telas rurais ainda não gravam esses cadastros
+no PostgreSQL. Diferente do `localStorage`, o banco pode ser compartilhado com
+segurança por diferentes usuários autorizados.
 
 Ter o schema criado não significa que as telas já estejam usando o banco.
 
@@ -876,8 +1007,17 @@ relações importantes que precisam ser validados pelo banco.
 Exemplo: “Fazenda de demonstração” é uma `Property`. Áreas, produtos,
 movimentos e registros pertencem a ela por `propertyId`.
 
-O nome “Fazenda Santa Helena” ainda aparece fixo no dashboard do MVP, mas não é
-a única propriedade possível no novo schema.
+O nome mostrado no menu e no dashboard vem hoje da propriedade ativa resolvida
+no servidor, não de uma fazenda fixa no código.
+
+## Propriedade ativa
+
+Propriedade ativa é o escopo rural selecionado para a navegação atual. A
+seleção começa no cookie, mas só vira contexto depois que o servidor confirma o
+vínculo do usuário e que usuário e propriedade continuam ativos.
+
+Trocar a propriedade muda o contexto autenticado e também a chave de
+`localStorage` usada pelos cadastros rurais temporários.
 
 ## PropertyMember
 
@@ -886,6 +1026,41 @@ a única propriedade possível no novo schema.
 Exemplo: Maria pode ser `MANAGER` em uma fazenda e `VIEWER` em outra. O papel
 fica no vínculo porque pertence à participação, não à pessoa em todos os
 lugares.
+
+## PropertyRole
+
+`PropertyRole` é o papel gravado em um `PropertyMember`:
+
+- `OWNER`: proprietário;
+- `MANAGER`: gerente;
+- `EMPLOYEE`: funcionário;
+- `VIEWER`: visualizador.
+
+O papel pode mudar de uma propriedade para outra.
+
+## Capability
+
+Capability é uma permissão concreta derivada do papel, como
+`READ_PROPERTY`, `CREATE_RECORD`, `MOVE_STOCK` ou `MANAGE_TEAM`.
+
+`OWNER` e `MANAGER` recebem todas as capacidades da Etapa 2; `EMPLOYEE` pode
+ler, registrar e movimentar estoque; `VIEWER` possui somente leitura. A gestão
+de equipe aplica ainda regras de hierarquia mais restritas.
+
+## Último OWNER
+
+Último `OWNER` é o único proprietário que restou em uma `Property`. O AgroZap
+proíbe removê-lo ou rebaixá-lo, pois toda propriedade precisa manter ao menos
+um proprietário.
+
+A contagem é repetida dentro de transação `Serializable` para que duas mudanças
+simultâneas não contornem a regra.
+
+## Autogerenciamento
+
+Autogerenciamento é alterar o próprio papel ou remover a própria participação
+pela tela de equipe. A Etapa 2 proíbe essas ações para evitar autoexclusão e
+mudanças de privilégio difíceis de revisar.
 
 ## Alias
 
@@ -945,8 +1120,10 @@ executou a atividade.
 Exemplo: João registra “Pedro aplicou o produto”. João é `createdBy`; Pedro é
 `performedBy`.
 
-Esses campos já existem no banco, mas a interface ainda precisa de login para
-preenchê-los de forma real.
+O login já identifica quem executa as novas actions do servidor. Áreas,
+anotações e estoque das telas ainda pertencem ao fluxo local; quando migrarem
+para o banco, deverão receber `createdBy` da sessão revalidada, nunca de um ID
+livre enviado pelo navegador.
 
 ## RecordSource
 
@@ -954,18 +1131,20 @@ preenchê-los de forma real.
 
 Os valores preparados são `WEB`, `WHATSAPP`, `SYSTEM` e `API`.
 
-Exemplo: o seed usa `SYSTEM`. As futuras telas usarão normalmente `WEB` ou
-`API`. O valor não prova que o canal correspondente já esteja implementado.
+Exemplo: o seed usa `SYSTEM`, e as actions web de equipe usam `WEB`. Futuras
+integrações poderão usar `WHATSAPP` ou `API`; o valor no enum não prova que o
+canal correspondente já esteja implementado.
 
 ## API/Server do domínio
 
-É a camada de servidor que receberá pedidos das páginas, identificará o usuário
-e chamará os services.
+É a camada de servidor que recebe pedidos das páginas, identifica o usuário e
+chama os services.
 
-O AgroZap já possui `/api/clima`, mas ainda não possui a API que liga cadastros
-de áreas, produtos e anotações ao PostgreSQL.
+O AgroZap já possui `/api/clima`, handlers do Auth.js e Server Actions para
+login, logout, propriedade e equipe. Ainda não possui a camada que liga os
+cadastros de áreas, produtos e anotações ao PostgreSQL.
 
-O fluxo planejado é:
+O fluxo já usado pela equipe e planejado para os cadastros rurais é:
 
 ```text
 Tela → API/Server → Service → Prisma → PostgreSQL
@@ -975,9 +1154,10 @@ Tela → API/Server → Service → Prisma → PostgreSQL
 
 Variável de ambiente é uma configuração fornecida fora do código.
 
-Exemplo: `DATABASE_URL` contém o endereço de conexão do PostgreSQL. O projeto
-mostra apenas o nome em `.env.example`; o valor real fica no `.env`, que não
-deve ser enviado ao Git.
+Exemplos: `DATABASE_URL` contém o endereço de conexão do PostgreSQL e
+`AUTH_SECRET` protege a sessão. O projeto mostra somente exemplos sem
+credenciais em `.env.example`; valores reais ficam no `.env` ignorado ou no
+gerenciador de segredos e não devem ser enviados ao Git.
 
 ## PendingAction
 
@@ -988,18 +1168,23 @@ Exemplo futuro: uma mensagem é interpretada como retirada de 3 litros, o
 usuário revisa o resumo e confirma antes da execução.
 
 Esse conceito é **PLANEJADO**. A entidade não foi criada nesta etapa porque o
-fluxo de autenticação, validade e confirmação ainda precisa ser definido.
+fluxo de validade e confirmação ainda precisa ser definido. A autenticação web
+já existe, mas não define sozinha esses estados.
 
-## Resumo dos dois fluxos
+## Resumo dos três fluxos
 
 ```text
-ATUAL
-Tela → Context → localStorage
+ATUAL — autenticação, propriedade e equipe
+Tela/layout/action → Auth e autorização → Service → Prisma → PostgreSQL
 
-EM CONSTRUÇÃO
-Tela → API/Server → Service → Prisma → PostgreSQL
+ATUAL — cadastros rurais
+Tela → Context → localStorage por Property
+
+ETAPA 3 RECOMENDADA
+Tela rural → API/Server autorizado → Service → Prisma → PostgreSQL
 ```
 
-O primeiro mantém o MVP funcionando. O segundo oferece a base para dados
-compartilhados, transações e auditoria, mas só passará a ser usado pelas telas
-depois que a camada API/Server for implementada.
+O primeiro já usa identidade e banco reais. O segundo mantém o MVP rural
+funcionando de forma local e isolada por propriedade. O terceiro reutilizará a
+autorização da Etapa 2 para tornar esses cadastros compartilhados; ainda não foi
+iniciado.

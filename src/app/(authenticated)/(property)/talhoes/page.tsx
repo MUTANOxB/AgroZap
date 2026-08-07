@@ -6,6 +6,7 @@ import {
   type Area,
   type ProductionType,
 } from "@/context/AgroAppContext";
+import { usePropertyAccess } from "@/context/PropertyAccessContext";
 
 type FormData = Omit<Area, "id">;
 
@@ -43,8 +44,10 @@ export default function TalhoesPage() {
   /*
    * As áreas vêm do AgroAppContext. Quando esta tela adiciona uma área, outras
    * telas também recebem o novo dado sem precisar repetir o cadastro.
-   */
+  */
   const { areas, adicionarArea, isModoCompleto } = useAgroApp();
+  const { can } = usePropertyAccess();
+  const canCreateArea = can("CREATE_AREA");
   const [formData, setFormData] = useState<FormData>(emptyForm);
 
   /*
@@ -64,6 +67,7 @@ export default function TalhoesPage() {
    */
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canCreateArea) return;
 
     const newLocation: FormData = {
       name: formData.name.trim(),
@@ -101,7 +105,8 @@ export default function TalhoesPage() {
         </p>
       </header>
 
-      <section className="ag-form-section">
+      {canCreateArea ? (
+        <section className="ag-form-section">
         <div className="border-b border-emerald-950/7 bg-white/45 px-4 py-5 sm:px-6">
           <h2 className="text-lg font-bold text-slate-900">Cadastrar nova área</h2>
           <p className="mt-1 text-sm text-slate-500">
@@ -227,7 +232,19 @@ export default function TalhoesPage() {
             </button>
           </div>
         </form>
-      </section>
+        </section>
+      ) : (
+        <section
+          role="note"
+          className="mb-7 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950 sm:p-5"
+        >
+          <p className="text-sm font-bold">Modo consulta</p>
+          <p className="mt-1 text-sm leading-6 text-emerald-800">
+            Você pode acompanhar as áreas desta propriedade, mas seu papel não
+            permite cadastrar novas áreas.
+          </p>
+        </section>
+      )}
 
       <section className="mt-7">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-4">

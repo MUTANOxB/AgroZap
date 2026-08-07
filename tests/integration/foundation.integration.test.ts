@@ -64,6 +64,7 @@ test("migrations do zero e duas execuções do seed deixam a fundação íntegra
     [
       "20260807090000_initial_domain_foundation",
       "20260807120000_stage_1_1_hardening",
+      "20260807150000_stage_2_authentication",
     ],
   );
   assert.ok(migrations.every((migration) => migration.finished_at !== null));
