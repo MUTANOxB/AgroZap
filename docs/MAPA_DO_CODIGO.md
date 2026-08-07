@@ -1011,7 +1011,7 @@ URL escolhida no `.env` e nunca mostra a conexão completa nos logs.
 Antes de apagar ou criar qualquer banco, ele confere:
 
 ```text
-host é localhost ou 127.0.0.1 e a porta é explícita
+host é localhost ou 127.0.0.1 e a porta é validada (5432 quando omitida)
         ↓
 nome contém test como segmento e usa somente letras, números ou underscore
         ↓

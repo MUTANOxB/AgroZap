@@ -37,6 +37,12 @@ export const authConfig = {
     strategy: "jwt",
   },
   callbacks: {
+    session({ session, token }) {
+      if (session.user && typeof token.sub === "string") {
+        session.user.id = token.sub;
+      }
+      return session;
+    },
     authorized({ auth, request }) {
       if (!isProtectedPath(request.nextUrl.pathname)) return true;
       return Boolean(auth?.user?.id);

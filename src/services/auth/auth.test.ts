@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import bcrypt from "bcryptjs";
+import { NextRequest } from "next/server";
 import { InvalidPhoneError, normalizePhone } from "./phone";
 import {
   hashPassword,
@@ -81,4 +82,40 @@ test("verify recusa senha truncada e hash inválido sem lançar", async () => {
 
   assert.equal(await verifyPassword("a".repeat(73), validHash), false);
   assert.equal(await verifyPassword("Uma senha válida", "não-é-um-hash"), false);
+});
+
+test("configuração compartilhada projeta a identidade usada pelo Proxy", async () => {
+  const previousAuthSecret = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = "auth-config-regression-secret-000000";
+
+  try {
+    const { authConfig } = await import("../../auth.config");
+    const userId = "user-authenticated-by-jwt";
+    const projectedSession = await authConfig.callbacks.session({
+      session: {
+        user: {
+          name: "Usuário de teste",
+          email: null,
+          image: null,
+        },
+        expires: new Date(Date.now() + 60_000).toISOString(),
+      },
+      token: { sub: userId },
+    } as Parameters<typeof authConfig.callbacks.session>[0]);
+
+    assert.equal(projectedSession.user?.id, userId);
+
+    const proxyDecision = await authConfig.callbacks.authorized({
+      auth: projectedSession,
+      request: new NextRequest("http://localhost/propriedades"),
+    });
+
+    assert.equal(proxyDecision, true);
+  } finally {
+    if (previousAuthSecret === undefined) {
+      delete process.env.AUTH_SECRET;
+    } else {
+      process.env.AUTH_SECRET = previousAuthSecret;
+    }
+  }
 });

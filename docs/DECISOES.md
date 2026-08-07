@@ -435,7 +435,7 @@ um banco. Usar o banco normal de desenvolvimento poderia destruir dados válidos
 e transformar uma validação em incidente.
 
 **Consequência:** antes de qualquer `DROP DATABASE`, o runner exige host
-`localhost` ou `127.0.0.1`, porta explícita, nome simples com letras, números ou
+`localhost` ou `127.0.0.1`, porta validada (usando `5432` quando omitida), nome simples com letras, números ou
 `_`, segmento `test`, diferença em relação ao banco de desenvolvimento e ausência na lista
 protegida `agrozap`, `postgres`, `template0` e `template1`. O identificador só é
 incluído no SQL depois dessa validação.
