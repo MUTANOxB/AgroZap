@@ -246,9 +246,9 @@ Decisões explícitas desta etapa:
   mas não oferece confidencialidade entre usuários que compartilham o mesmo
   navegador e perfil. Esse risco residual permanece enquanto os cadastros
   rurais forem locais;
-- os services rurais ainda não estão expostos por Server Actions ou API. Antes
-  da Etapa 3, cada escrita deverá exigir a capability adequada e um ator
-  confiável derivado no servidor; ator nulo não poderá virar um bypass web.
+- no encerramento da Etapa 2.1, os services rurais ainda não estavam expostos.
+  A Etapa 3A passou a exigir capability e ator derivado no servidor; ator nulo
+  continua proibido nos comandos WEB.
 
 O baseline validado antes da Etapa 2.1 é: `test:stage1.1` 8/8,
 `test:stage2` 17/17, 45/45 testes de integração, 25/25 unitários e 70/70 em
@@ -257,25 +257,77 @@ quatro de regressão contra reparenting —, a validação final da Etapa 2.1
 aprovou 58/58 testes de integração e 83/83 em `test:all`, mantendo 25/25
 unitários. `db:validate`, `db:generate`, typecheck, lint e build também passaram.
 
-## ETAPA 3 — API real e substituição do localStorage
+## ETAPA 3 — Boundary rural, integração da UI e transição do legado
 
-**Status: planejada — próxima etapa recomendada**
+**Status: iniciada — Etapa 3A concluída**
+
+### ETAPA 3A — Boundary server-side, queries e comandos seguros
+
+Implementado nesta subetapa:
+
+- `requireActivePropertyContext()` como entrada obrigatória dos fluxos WEB;
+- `propertyId` e `createdByUserId` derivados no servidor, com origem fixa
+  `WEB`;
+- rejeição recursiva de `propertyId`, ator, papel, capability ou origem
+  enviados no input público;
+- guard central de capabilities para leituras e mutações rurais;
+- revalidação transacional da capability das mutações WEB, com lock da
+  membership e do User atuais, usando marcador interno exato e obrigatório;
+  `undefined` ou marcador forjado é recusado, enquanto fontes explicitamente
+  não-WEB podem omiti-lo;
+- Server Actions de área, produto, `FarmRecord`, IN/OUT, ajuste, reversão e
+  registro + estoque;
+- queries server-only de áreas e produtos ativos e de históricos paginados;
+- DTOs que convertem `Decimal` em string e datas em ISO;
+- normalização determinística de decimais PT-BR, datas simples e
+  `occurredAt`;
+- cursor opaco vinculado à Property e ao tipo de histórico, com limite padrão
+  25 e máximo 100;
+- coerência obrigatória de produto e área entre `FarmRecord` e novas
+  movimentações; reversões podem espelhar vínculos históricos legados para
+  preservar a correção compensatória;
+- orquestração atômica de registro + estoque em transação `Serializable` com
+  retry;
+- envelope seguro de erro, sem stack, SQL, URL de banco ou erro bruto do
+  Prisma;
+- testes unitários e PostgreSQL adversariais adicionados à suíte.
+
+A implementação não criou migration: a regra semântica adicional pertence aos
+services. A validação final aprovou 8/8 testes da Etapa 1.1, 17/17 da Etapa 2,
+19/19 unitários da 3A e 78/78 de integração, totalizando 122/122 em
+`test:all`. `db:validate`, `db:generate`, typecheck, lint e build também
+passaram.
+
+### ETAPA 3B — Conectar a interface rural
+
+**Status: planejada**
 
 Objetivo:
 
-- criar Route Handlers, Server Actions ou outra camada de servidor clara;
-- chamar os services sem expor o banco ao navegador;
-- reutilizar a sessão, a propriedade ativa revalidada e as capacidades da
-  Etapa 2 em toda escrita;
-- fazer áreas, produtos e anotações usarem PostgreSQL;
-- consultar movimentos e auditoria com paginação;
-- manter o modo visual como preferência local quando fizer sentido;
-- oferecer uma estratégia explícita para os dados já salvos no navegador.
+- adaptar as páginas de áreas, produtos, anotações, estoque e dashboard aos
+  DTOs e actions da 3A;
+- fazer o saldo visível vir do PostgreSQL;
+- consumir paginação sem perder o histórico;
+- manter o Modo Simples/Completo como preferência local quando fizer sentido;
+- provar que sessões diferentes da mesma Property veem o mesmo dado.
 
-Esta etapa termina quando atualizar duas sessões diferentes mostra o mesmo dado
-da propriedade e o `localStorage` deixa de ser a fonte dos cadastros rurais.
-Ela está apenas recomendada neste roadmap; não foi iniciada na Etapa 2 nem na
-Etapa 2.1.
+Até a 3B, a UI rural continua usando o `AgroAppContext` e o `localStorage`.
+
+### ETAPA 3C — Legado, cross-session e histórico final
+
+**Status: planejada**
+
+Objetivo:
+
+- decidir de forma explícita como importar, exportar ou descartar dados rurais
+  antigos;
+- impedir duplicação e nunca importar silenciosamente;
+- tratar comportamento cross-session e dispositivos compartilhados;
+- concluir a experiência de histórico, auditoria e transição das chaves
+  locais.
+
+As chaves `agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e o marcador de
+migração permanecem intactos na 3A.
 
 ## ETAPA 4 — WhatsApp por texto e identificação por telefone
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   FarmRecordType,
   Prisma,
@@ -6,6 +8,10 @@ import {
 } from "@/generated/prisma/client";
 import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
+import {
+  requireTransactionalRuralWebCapability,
+  type RuralWebAuthorization,
+} from "@/services/autorizacao/rural-web-authorization";
 import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 
 export type CreateFarmRecordCommand = {
@@ -37,6 +43,7 @@ export class FarmRecordDomainError extends Error {
       | "INVALID_RECORD"
       | "PROPERTY_NOT_FOUND"
       | "RELATED_ENTITY_NOT_FOUND"
+      | "WEB_ACTOR_REQUIRED"
       | "USER_NOT_ACTIVE_PROPERTY_MEMBER",
     message: string,
   ) {
@@ -63,8 +70,10 @@ function optionalNonNegativeDecimal(
   }
 }
 
-export function createFarmRecord(
+export async function createFarmRecordInTransaction(
+  transaction: Prisma.TransactionClient,
   command: CreateFarmRecordCommand,
+  authorization?: RuralWebAuthorization,
 ): Promise<FarmRecord> {
   const description = command.description.trim();
   if (!description) {
@@ -78,114 +87,141 @@ export function createFarmRecord(
   const value = optionalNonNegativeDecimal(command.value, "O valor");
   const appliedDose = optionalNonNegativeDecimal(command.appliedDose, "A dose");
   const source = command.source ?? RecordSource.WEB;
+  if (
+    source === RecordSource.WEB &&
+    (typeof command.createdByUserId !== "string" ||
+      !command.createdByUserId.trim())
+  ) {
+    throw new FarmRecordDomainError(
+      "WEB_ACTOR_REQUIRED",
+      "Operações WEB exigem um usuário autenticado.",
+    );
+  }
 
-  return db.$transaction(async (transaction) => {
-    const property = await transaction.property.findFirst({
-      where: { id: command.propertyId, archivedAt: null },
-      select: { id: true },
-    });
-    if (!property) {
-      throw new FarmRecordDomainError(
-        "PROPERTY_NOT_FOUND",
-        "Propriedade não encontrada.",
-      );
-    }
+  const property = await transaction.property.findFirst({
+    where: { id: command.propertyId, archivedAt: null },
+    select: { id: true },
+  });
+  if (!property) {
+    throw new FarmRecordDomainError(
+      "PROPERTY_NOT_FOUND",
+      "Propriedade não encontrada.",
+    );
+  }
 
-    const inactiveOrMissingMembers =
-      await findUserIdsWithoutActivePropertyMembership(
+  const inactiveOrMissingMembers =
+    await findUserIdsWithoutActivePropertyMembership(
       transaction,
       command.propertyId,
       [command.createdByUserId, command.performedByUserId],
     );
-    if (inactiveOrMissingMembers.length > 0) {
+  if (inactiveOrMissingMembers.length > 0) {
+    throw new FarmRecordDomainError(
+      "USER_NOT_ACTIVE_PROPERTY_MEMBER",
+      "O usuário informado não está ativo nesta propriedade.",
+    );
+  }
+  if (source === RecordSource.WEB) {
+    await requireTransactionalRuralWebCapability(
+      transaction,
+      authorization,
+      {
+        propertyId: command.propertyId,
+        actorUserId: command.createdByUserId as string,
+        capability: "CREATE_RECORD",
+      },
+    );
+  }
+  let area: { id: string; name: string } | null = null;
+  if (command.areaId) {
+    area = await transaction.area.findFirst({
+      where: {
+        id: command.areaId,
+        propertyId: command.propertyId,
+        archivedAt: null,
+      },
+      select: { id: true, name: true },
+    });
+    if (!area) {
       throw new FarmRecordDomainError(
-        "USER_NOT_ACTIVE_PROPERTY_MEMBER",
-        "O usuário informado não está ativo nesta propriedade.",
+        "RELATED_ENTITY_NOT_FOUND",
+        "A área informada não pertence a esta propriedade.",
       );
     }
+  }
 
-    let area: { id: string; name: string } | null = null;
-    if (command.areaId) {
-      area = await transaction.area.findFirst({
-        where: {
-          id: command.areaId,
-          propertyId: command.propertyId,
-          archivedAt: null,
-        },
-        select: { id: true, name: true },
-      });
-      if (!area) {
-        throw new FarmRecordDomainError(
-          "RELATED_ENTITY_NOT_FOUND",
-          "A área informada não pertence a esta propriedade.",
-        );
-      }
-    }
-
-    let product: { id: string; name: string } | null = null;
-    if (command.productId) {
-      product = await transaction.stockProduct.findFirst({
-        where: {
-          id: command.productId,
-          propertyId: command.propertyId,
-          archivedAt: null,
-        },
-        select: { id: true, name: true },
-      });
-      if (!product) {
-        throw new FarmRecordDomainError(
-          "RELATED_ENTITY_NOT_FOUND",
-          "O produto informado não pertence a esta propriedade.",
-        );
-      }
-    }
-
-    const record = await transaction.farmRecord.create({
-      data: {
+  let product: { id: string; name: string } | null = null;
+  if (command.productId) {
+    product = await transaction.stockProduct.findFirst({
+      where: {
+        id: command.productId,
         propertyId: command.propertyId,
-        areaId: command.areaId ?? null,
-        productId: command.productId ?? null,
-        createdByUserId: command.createdByUserId,
-        performedByUserId: command.performedByUserId ?? null,
-        type: command.type,
-        description,
-        locationDescription: command.locationDescription?.trim() || null,
-        occurredAt: command.occurredAt,
-        quantity,
-        quantityUnit: command.quantityUnit?.trim() || null,
-        value,
-        responsibleName: command.responsibleName?.trim() || null,
-        productNameSnapshot: product?.name ?? null,
-        areaNameSnapshot: area?.name ?? null,
-        appliedDose,
-        doseUnit: command.doseUnit?.trim() || null,
-        harvest: command.harvest?.trim() || null,
-        supplier: command.supplier?.trim() || null,
-        productBatch: command.productBatch?.trim() || null,
-        technicalNote: command.technicalNote?.trim() || null,
-        source,
+        archivedAt: null,
       },
+      select: { id: true, name: true },
     });
+    if (!product) {
+      throw new FarmRecordDomainError(
+        "RELATED_ENTITY_NOT_FOUND",
+        "O produto informado não pertence a esta propriedade.",
+      );
+    }
+  }
 
-    await writeAuditLog(transaction, {
+  const record = await transaction.farmRecord.create({
+    data: {
       propertyId: command.propertyId,
-      actorUserId: command.createdByUserId,
-      action: "FARM_RECORD_CREATED",
-      entityType: "FarmRecord",
-      entityId: record.id,
+      areaId: command.areaId ?? null,
+      productId: command.productId ?? null,
+      createdByUserId: command.createdByUserId,
+      performedByUserId: command.performedByUserId ?? null,
+      type: command.type,
+      description,
+      locationDescription: command.locationDescription?.trim() || null,
+      occurredAt: command.occurredAt,
+      quantity,
+      quantityUnit: command.quantityUnit?.trim() || null,
+      value,
+      responsibleName: command.responsibleName?.trim() || null,
+      productNameSnapshot: product?.name ?? null,
+      areaNameSnapshot: area?.name ?? null,
+      appliedDose,
+      doseUnit: command.doseUnit?.trim() || null,
+      harvest: command.harvest?.trim() || null,
+      supplier: command.supplier?.trim() || null,
+      productBatch: command.productBatch?.trim() || null,
+      technicalNote: command.technicalNote?.trim() || null,
       source,
-      afterData: {
-        type: record.type,
-        description: record.description,
-        occurredAt: record.occurredAt.toISOString(),
-        areaId: record.areaId,
-        productId: record.productId,
-      },
-      metadata: {
-        performedByUserId: command.performedByUserId ?? null,
-      },
-    });
-
-    return record;
+    },
   });
+
+  await writeAuditLog(transaction, {
+    propertyId: command.propertyId,
+    actorUserId: command.createdByUserId,
+    action: "FARM_RECORD_CREATED",
+    entityType: "FarmRecord",
+    entityId: record.id,
+    source,
+    afterData: {
+      type: record.type,
+      description: record.description,
+      occurredAt: record.occurredAt.toISOString(),
+      areaId: record.areaId,
+      productId: record.productId,
+    },
+    metadata: {
+      performedByUserId: command.performedByUserId ?? null,
+    },
+  });
+
+  return record;
+}
+
+export function createFarmRecord(
+  command: CreateFarmRecordCommand,
+  authorization?: RuralWebAuthorization,
+): Promise<FarmRecord> {
+  return db.$transaction((transaction) =>
+    createFarmRecordInTransaction(transaction, command, authorization),
+  );
 }

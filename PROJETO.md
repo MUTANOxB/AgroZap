@@ -117,17 +117,42 @@ implementados nesta etapa.
 é um identificador global, enquanto nomes legíveis de propriedades podem se
 repetir.
 
-Essa fundação **ainda não está conectada às páginas por uma API ou Server
-Action**. Portanto, cadastrar algo pela interface ainda altera o
-`localStorage`, não o PostgreSQL. Ter o schema e os services prontos não
-significa que o banco já esteja sendo usado pelas telas.
+### EM CONSTRUÇÃO — boundary rural da Etapa 3A
+
+A Etapa 3 foi iniciada. A subetapa 3A concluiu e validou a camada server-side
+rural. Ela acrescenta:
+
+- Server Actions para áreas, produtos, `FarmRecord`, movimentos, ajustes,
+  reversões e a operação combinada registro + estoque;
+- queries server-only para áreas e produtos ativos, além de registros,
+  movimentos e auditoria paginados;
+- autorização central por capability;
+- releitura da membership, do papel e do User sob lock na mesma transação das
+  mutações WEB, mediante marcador interno exato e obrigatório; marcador
+  ausente (`undefined`) ou forjado é recusado, evitando tanto bypass quanto a
+  confirmação de uma capability revogada em paralelo;
+- `propertyId`, `createdByUserId` e origem `WEB` derivados no servidor;
+- validação de IDs candidatos e rejeição de campos de autoridade enviados pelo
+  navegador;
+- DTOs serializáveis, com `Decimal` como string e datas em formato ISO;
+- parsing determinístico de números brasileiros e datas;
+- consistência semântica entre `FarmRecord` e novas `StockMovement`
+  vinculadas, sem impedir a reversão compensatória de legado incompatível;
+- transação atômica para criar um registro junto com uma movimentação;
+- respostas de erro seguras, sem detalhes de Prisma ou PostgreSQL.
+
+Essa camada **ainda não é consumida pelas páginas rurais**. Portanto,
+cadastrar algo pela interface continua alterando o `localStorage`, não o
+PostgreSQL. Ter Server Actions e queries disponíveis não significa que a UI já
+tenha mudado de fonte.
 
 ### PLANEJADO — experiência completa
 
 Estão planejados para etapas futuras:
 
-- API real ligando as telas aos services e ao PostgreSQL;
-- migração assistida dos dados locais;
+- Etapa 3B ligando as telas rurais ao boundary e ao PostgreSQL;
+- Etapa 3C tratando legado local, comportamento entre sessões e histórico
+  final, sem importação silenciosa;
 - uso principal pelo WhatsApp, com identificação pelo telefone;
 - confirmação de ações antes de alterar dados importantes;
 - interpretação de texto e áudio por inteligência artificial;
@@ -136,7 +161,8 @@ Estão planejados para etapas futuras:
 Uma `Organization` poderá futuramente agrupar várias Properties para empresa,
 família, cobrança ou administração central, mas foi deliberadamente adiada.
 PostgreSQL RLS não foi implementado. Também não existe integração com WhatsApp,
-chatbot, IA ou transcrição de áudio, e a Etapa 3 ainda não foi iniciada.
+chatbot, IA ou transcrição de áudio. A Etapa 3A está concluída; 3B e 3C
+continuam planejadas.
 
 ## Como os dados circulam hoje
 
@@ -167,23 +193,45 @@ React atualiza as telas
 ```
 
 O banco já atende autenticação, propriedade e equipe. O caminho rural local
-ainda não chama os services persistentes.
+ainda não chama os services persistentes. Em paralelo, a Etapa 3A já oferece o
+caminho server-side que será consumido pela 3B:
 
-## Como deverá funcionar depois da integração
+```text
+Server Action ou query rural
+        ↓
+requireActivePropertyContext()
+        ↓
+capability + propertyId/actorUserId derivados no servidor
+        ↓
+normalização e validação dos IDs candidatos
+        ↓
+service rural + Prisma + PostgreSQL
+        ↓
+DTO serializável ou erro seguro
+```
+
+## Como funcionará depois da integração da UI na Etapa 3B
 
 ```text
 Tela ou canal autorizado
         ↓
-API/Server identifica propriedade e usuário
+Boundary server-side identifica propriedade e usuário
         ↓
-Service valida capability, ator confiável e regra de negócio
+Boundary normaliza a entrada e exige a capability
+        ↓
+Service valida relações e regras de negócio
         ↓
 Prisma executa uma transação
         ↓
 PostgreSQL salva dado, histórico e auditoria
         ↓
-Painel consulta e mostra o resultado
+DTO serializável chega ao painel
 ```
+
+As leituras paginadas usam cursor vinculado à Property e ao tipo de histórico.
+`FarmRecord` e `StockMovement` são ordenados por `occurredAt` e `id`; auditoria
+usa `createdAt` e `id`. A consulta busca somente o limite necessário no
+PostgreSQL, em vez de carregar o histórico inteiro no navegador.
 
 O painel continuará sendo a forma visual de cadastrar, revisar e consultar as
 informações. No futuro, o WhatsApp poderá ser o meio mais rápido para registrar
@@ -212,10 +260,12 @@ O banco foi preparado para manter duas identidades:
 - `performedBy`: quem realizou a atividade no campo.
 
 Por exemplo, João pode informar que Pedro retirou um produto. Nesse caso, João
-registrou e Pedro executou. As identidades e a autenticação já existem, mas os
-formulários rurais ainda precisam ser integrados ao servidor para usar essa
-separação na experiência real. Atores históricos continuam globais mesmo se a
-membership atual for removida.
+registrou e Pedro executou. Nas actions WEB da 3A, `createdBy` é sempre o User
+da sessão revalidada. `performedBy` pode chegar somente como ID candidato e
+precisa ser um User ativo com membership ativa na mesma Property. Os
+formulários rurais ainda precisam ser integrados na 3B para usar essa separação
+na experiência real. Atores históricos continuam globais mesmo se a membership
+atual for removida.
 
 ## Histórico das operações
 
@@ -231,6 +281,15 @@ será:
 3. manter os três registros relacionados e auditáveis.
 
 Assim, o sistema preserva o que aconteceu e também mostra como foi corrigido.
+
+Quando um movimento novo aponta para um `FarmRecord`, produto e área precisam
+ser exatamente os mesmos, inclusive quando a área é `null`; um registro sem
+produto não pode receber movimento. A consistência semântica `FarmRecord` ↔
+`StockMovement` é obrigatória para novas movimentações. Reversões podem
+espelhar vínculos históricos legados para preservar a capacidade de correção
+compensatória, sem reescrever o movimento ou o registro antigo. Quando registro
+e estoque representam uma única ação do usuário, a orquestração da 3A confirma
+ambos e suas auditorias na mesma transação `Serializable`, ou desfaz tudo.
 
 ## Regra de produto
 

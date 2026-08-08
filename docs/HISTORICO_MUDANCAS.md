@@ -4,6 +4,140 @@ Este arquivo registra mudanças importantes em linguagem simples. Ele não
 substitui o histórico do Git; seu objetivo é explicar o motivo e o impacto de
 cada etapa para quem está estudando o projeto.
 
+## 07/08/2026 — Boundary rural server-side (Etapa 3A)
+
+### Estado da entrega
+
+A Etapa 3 foi iniciada e a 3A foi concluída com a validação global aprovada.
+Isso conclui o boundary server-side, não a integração da interface: as páginas
+rurais continuam no caminho local até a 3B.
+
+Nenhuma migration foi criada. As quatro migrations anteriores e as oito FKs
+compostas da Etapa 2.1 permanecem intactas.
+
+### Boundary WEB e autoridade
+
+O novo arquivo
+`src/app/(authenticated)/(property)/rural-actions.ts` oferece Server Actions
+para criar área, produto, `FarmRecord`, movimentar ou ajustar estoque, reverter
+movimento e executar a operação combinada registro + estoque.
+
+Todas seguem o mesmo caminho:
+
+```text
+sessão autenticada
+        ↓
+requireActivePropertyContext()
+        ↓
+guard de capability
+        ↓
+propertyId + createdByUserId derivados no servidor; source = WEB
+        ↓
+normalização e validação de IDs candidatos
+        ↓
+service rural
+        ↓
+DTO serializável ou erro seguro
+```
+
+`rural-web-inputs.ts` recebe `unknown`, limita campos e tamanhos e recusa
+recursivamente `propertyId`, `createdByUserId`, `actorUserId`, `role`,
+`capability` e `source`. `performedByUserId` continua funcional somente como
+candidato: o service confirma User ativo e membership ativa na Property atual.
+
+`property-capability-guard.ts` aplica a matriz já existente. OWNER e MANAGER
+mantêm todas as capabilities; EMPLOYEE lê, cria registro e movimenta estoque;
+VIEWER somente lê. Ajuste, reversão e auditoria continuam negados a EMPLOYEE e
+VIEWER.
+
+Toda mutação WEB precisa passar o singleton interno
+`RURAL_WEB_AUTHORIZATION`, que é `server-only` e não pertence ao payload do
+navegador. `undefined` e qualquer objeto forjado são recusados; a ausência do
+marcador não concede confiança implícita. Dentro da própria transação de
+escrita, `rural-web-authorization.ts` relê e bloqueia a `PropertyMember` e o
+`User` atuais antes da alteração. Assim, nem o esquecimento de autorização por
+um novo caller nem remoção, desativação ou troca de papel concorrente confirma
+uma mutação WEB indevida. Fontes explicitamente não-WEB continuam independentes
+desse marcador.
+
+### Queries, DTOs e paginação
+
+`rural-query.service.ts` contém wrappers sem `propertyId` público para listar:
+
+- áreas e produtos ativos, com `READ_PROPERTY`;
+- `FarmRecord` e `StockMovement`, com `READ_PROPERTY` e paginação;
+- `AuditLog`, com `VIEW_AUDIT` e paginação.
+
+Toda consulta possui `where.propertyId` explícito. O cursor é Base64 URL-safe,
+versionado e contém tipo do histórico, Property, instante e ID. Um cursor de
+outra Property ou de outro histórico é recusado. `FarmRecord` e movimento usam
+`occurredAt DESC, id DESC`; auditoria usa `createdAt DESC, id DESC`. O banco
+busca `limit + 1`, com padrão 25 e máximo 100, sem carregar o histórico inteiro
+para depois cortar no navegador.
+
+`rural-dtos.ts` impede que modelos Prisma crus atravessem o boundary. IDs e
+enums permanecem estáveis, `Decimal` vira string canônica, datas viram ISO e
+`null` permanece `null`. Snapshots de produto e área continuam sendo usados no
+histórico.
+
+### Números e datas determinísticos
+
+`rural-input-normalization.ts` aceita formatos inequívocos como `12,5`,
+`1.234,56`, `1000` e `1000.25`. Um único ponto com três casas, como `1.234`, é
+recusado por ambiguidade em vez de ser adivinhado.
+
+Datas de banco usam `YYYY-MM-DD` ancorado em `00:00Z`. Para `occurredAt`, uma
+data simples usa `12:00Z`; quando existe horário, `Z` ou offset explícito é
+obrigatório. Assim, o timezone do navegador não muda silenciosamente o dia
+rural.
+
+### Coerência e atomicidade
+
+Ao criar um novo `StockMovement` apontando para `FarmRecord`, o service exige:
+
+1. a mesma Property;
+2. o mesmo produto;
+3. a mesma área, inclusive `null`;
+4. produto presente no registro.
+
+Incompatibilidades novas produzem `FARM_RECORD_MOVEMENT_MISMATCH`, sem vazar
+Prisma. A consistência semântica `FarmRecord` ↔ `StockMovement` é obrigatória
+para novas movimentações, mas não bloqueia a correção de fatos anteriores à
+regra: uma reversão pode espelhar vínculos históricos legados incompatíveis,
+preservando Property, referências, snapshots e o original intacto. A operação
+`createFarmRecordWithStockMovement` cria registro, movimento, saldo e
+auditorias dentro da mesma transação `Serializable` e do mesmo mecanismo de
+retry. Falha de qualquer parte desfaz todas as outras.
+
+### Erros e testes adicionados
+
+`rural-action-result.ts` devolve sucesso com DTO ou erro com código e mensagem
+seguros. Erros de input, capability e domínio conhecidos são traduzidos;
+Prisma e erros desconhecidos viram `INTERNAL_ERROR`, sem stack, SQL, URL ou
+detalhe interno.
+
+A suíte ganhou testes do guard, parser, DTOs, inputs WEB, envelope seguro,
+coerência semântica, ator WEB obrigatório, `performedBy` cross-property,
+atomicidade, concorrência, queries A×B e paginação. A validação final aprovou:
+
+- `test:stage1.1`: 8/8;
+- `test:stage2`: 17/17;
+- `test:stage3a`: 19/19;
+- integração: 78/78, sendo 8 guardas do runner e 70 casos PostgreSQL;
+- `test:all`: 122/122;
+- `db:validate`, `db:generate`, typecheck, lint e build.
+
+O runner recriou somente `127.0.0.1/agrozap_test`; o banco `agrozap` não foi
+resetado nem recriado.
+
+### O que permanece para 3B e 3C
+
+A UI de áreas, anotações, produtos, estoque e dashboard não foi substituída.
+`AgroAppContext`, `agrozap-mvp-data`,
+`agrozap-mvp-data:<propertyId>`, o marcador de migração e `agrozap-settings`
+continuam intactos. A 3B conectará as telas ao PostgreSQL. A 3C tratará legado,
+cross-session e histórico final sem importação silenciosa.
+
 ## 07/08/2026 — Blindagem multi-tenant entre propriedades (Etapa 2.1)
 
 ### Por que esta etapa existe

@@ -1,3 +1,5 @@
+import "server-only";
+
 import {
   Prisma,
   ProductCategory,
@@ -8,6 +10,10 @@ import {
 import { normalizeLookupName } from "@/lib/normalize-name";
 import { db } from "@/lib/prisma";
 import { writeAuditLog } from "@/services/auditoria/audit-log.service";
+import {
+  requireTransactionalRuralWebCapability,
+  type RuralWebAuthorization,
+} from "@/services/autorizacao/rural-web-authorization";
 import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 
 export type CreateStockProductCommand = {
@@ -35,6 +41,7 @@ export class StockProductDomainError extends Error {
     public readonly code:
       | "INVALID_PRODUCT"
       | "PROPERTY_NOT_FOUND"
+      | "WEB_ACTOR_REQUIRED"
       | "USER_NOT_ACTIVE_PROPERTY_MEMBER"
       | "PRODUCT_NAME_ALREADY_USED",
     message: string,
@@ -90,6 +97,7 @@ function prepareAliases(aliases: string[] | undefined, officialName: string) {
 
 export function createStockProduct(
   command: CreateStockProductCommand,
+  authorization?: RuralWebAuthorization,
 ): Promise<StockProduct> {
   const name = command.name.trim();
   const unit = command.unit.trim();
@@ -113,6 +121,16 @@ export function createStockProduct(
   const unitValue = decimalValue(command.unitValue, "O valor unitário", true);
   const aliases = prepareAliases(command.aliases, name);
   const source = command.source ?? RecordSource.WEB;
+  if (
+    source === RecordSource.WEB &&
+    (typeof command.createdByUserId !== "string" ||
+      !command.createdByUserId.trim())
+  ) {
+    throw new StockProductDomainError(
+      "WEB_ACTOR_REQUIRED",
+      "Operações WEB exigem um usuário autenticado.",
+    );
+  }
 
   return db.$transaction(
     async (transaction) => {
@@ -139,7 +157,28 @@ export function createStockProduct(
           "O usuário informado não está ativo nesta propriedade.",
         );
       }
-
+      if (source === RecordSource.WEB) {
+        await requireTransactionalRuralWebCapability(
+          transaction,
+          authorization,
+          {
+            propertyId: command.propertyId,
+            actorUserId: command.createdByUserId as string,
+            capability: "CREATE_PRODUCT",
+          },
+        );
+        if (initialQuantity.greaterThan(0)) {
+          await requireTransactionalRuralWebCapability(
+            transaction,
+            authorization,
+            {
+              propertyId: command.propertyId,
+              actorUserId: command.createdByUserId as string,
+              capability: "ADJUST_STOCK",
+            },
+          );
+        }
+      }
       const candidateNames = [normalizedName, ...aliases.map((alias) => alias.normalizedName)];
       const [officialCollision, aliasCollision] = await Promise.all([
         transaction.stockProduct.findFirst({

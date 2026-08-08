@@ -7,9 +7,10 @@ caminho dos dados aos poucos.
 > **Importante:** a Etapa 2 colocou autenticação, propriedade ativa e equipe no
 > PostgreSQL. Áreas, anotações e produtos das telas continuam temporariamente
 > no Context e no `localStorage`, agora separados por propriedade. Portanto,
-> existem três caminhos que não devem ser confundidos.
+> a Etapa 3A acrescentou um boundary rural no servidor sem ainda trocar a
+> fonte da UI. Existem quatro caminhos/estados que não devem ser confundidos.
 
-### Visão rápida dos três caminhos
+### Visão rápida dos quatro caminhos
 
 **ATUAL — identidade, propriedade e equipe no servidor:**
 
@@ -35,23 +36,35 @@ agrozap-mvp-data:<propertyId> no localStorage
 React atualiza as páginas
 ```
 
-**PRÓXIMA ETAPA — ligar os cadastros rurais à fundação existente:**
+**ATUAL — boundary rural disponível no servidor desde a 3A:**
 
 ```text
-Página
+Server Action ou query server-only
     ↓
-Server Action ou Route Handler autorizado
+requireActivePropertyContext + capability + input normalizado
     ↓
 Service rural com regra de negócio
     ↓
 Prisma
     ↓
 PostgreSQL
+    ↓
+DTO serializável ou erro seguro
 ```
 
-O primeiro fluxo já atende login, seleção de propriedade e equipe. O segundo
-mantém o MVP rural funcionando no navegador. O terceiro descreve a Etapa 3 e
-não significa que um cadastro rural feito hoje já esteja chegando ao banco.
+**PLANEJADO — integração das páginas na Etapa 3B:**
+
+```text
+Página rural
+    ↓
+boundary da 3A
+    ↓
+PostgreSQL compartilhado entre sessões
+```
+
+O primeiro fluxo atende login, seleção e equipe. O segundo mantém o MVP rural
+no navegador. O terceiro é código server-side real da 3A, mas ainda não é
+chamado pelas páginas rurais. O quarto descreve a 3B.
 
 ## 1. Estrutura geral do projeto
 
@@ -78,7 +91,7 @@ AgroZap/
 │   ├── generated/prisma/ Prisma Client gerado automaticamente
 │   ├── hooks/            Lógicas reutilizáveis dos componentes
 │   ├── lib/              Conexão Prisma e funções auxiliares
-│   ├── services/         Auth, autorização, equipe e domínio rural
+│   ├── services/         Auth, autorização, equipe, domínio e boundary rural
 │   ├── types/            Tipos temporários usados pelas telas
 │   ├── auth.config.ts    Configuração compartilhada do Auth.js
 │   ├── auth.ts           Credentials e callbacks da sessão
@@ -124,7 +137,9 @@ Outros arquivos importantes:
 - `src/app/globals.css`: contém estilos gerais usados pelo sistema inteiro.
 - `src/app/api/clima/route.ts`: rota interna que consulta o clima real.
 - `src/app/api/auth/[...nextauth]/route.ts`: endpoints de sessão do Auth.js.
-- arquivos `actions.ts`: Server Actions de login, logout, seleção e equipe.
+- arquivos `actions.ts`: Server Actions de login, logout, seleção e equipe;
+- `src/app/(authenticated)/(property)/rural-actions.ts`: boundary WEB rural da
+  3A. As páginas ainda não o importam na 3A.
 
 ### Onde fica a identidade visual
 
@@ -737,6 +752,25 @@ se uma saída é permitida ou como criar a auditoria.
 - `src/services/usuarios/property-membership.ts`: encontra usuários que não
   existem, não pertencem à propriedade ou estão desativados.
 
+### Boundary rural da Etapa 3A
+
+- `src/services/autorizacao/property-capability-guard.ts`: exige uma ou várias
+  capabilities e devolve `FORBIDDEN` sem revelar o papel atual;
+- `src/services/autorizacao/rural-web-authorization.ts`: recebe das actions um
+  singleton `server-only` exato e obrigatório em toda mutação WEB; recusa
+  `undefined` ou objeto forjado, relê a membership e o User sob lock na
+  transação da escrita e reaplica a capability atual;
+- `src/services/rural/rural-web-inputs.ts`: valida inputs públicos recebidos
+  como `unknown` e recusa campos de autoridade;
+- `src/services/rural/rural-input-normalization.ts`: normaliza decimal PT-BR,
+  datas de banco e `occurredAt`;
+- `src/services/rural/rural-dtos.ts`: converte resultados para contratos
+  serializáveis;
+- `src/services/rural/rural-query.service.ts`: contém queries tenant-scoped,
+  paginação e wrappers da Property atual;
+- `src/services/rural/rural-action-result.ts`: traduz sucesso e erros para um
+  envelope seguro.
+
 ### WhatsApp
 
 `src/services/whatsapp` continua sem implementação. O diretório existe apenas
@@ -793,7 +827,11 @@ O registro original permanece no histórico. Um movimento só pode possuir uma
 reversão direta. Propriedade, produto e área podem estar arquivados nessa
 correção histórica, mas ainda precisam existir e corresponder à movimentação
 original. A reversão não os reativa e copia os snapshots da movimentação
-original.
+original. Se o movimento legado já vincula um `FarmRecord` com produto ou área
+semanticamente diferente, a reversão pode espelhar esse vínculo para manter a
+correção compensatória possível; ela não altera o movimento nem o registro
+antigo. O escopo da Property e as referências históricas continuam
+obrigatórios.
 
 `StockMovement` e `AuditLog` são append-only nas operações normais. Uma
 correção acrescenta outro movimento ou log; ela não altera nem apaga o passado.
@@ -819,9 +857,9 @@ Os formatos ainda não são iguais aos modelos Prisma. Exemplos:
 | valor como `"R$ 85,00"` | `Decimal` |
 | responsável como texto | relações `createdBy` e `performedBy` |
 
-A API/Server futura será responsável por validar e converter esses formatos.
-Não copie o tipo legado para o banco nem envie um objeto Prisma diretamente
-para um componente client.
+O boundary da 3A já valida e converte os formatos persistentes, mas as páginas
+legadas só passarão a chamá-lo na 3B. Não copie o tipo legado para o banco nem
+envie um objeto Prisma diretamente para um componente client.
 
 ## 15. O papel temporário do AgroAppContext
 
@@ -866,8 +904,9 @@ Durante a transição existem conjuntos independentes de demonstração:
 
 Rodar o seed não altera os cadastros rurais do navegador. Cadastrar área,
 anotação ou produto pela tela não altera o seed nem o PostgreSQL. Login,
-propriedade ativa e equipe já consultam o banco. A Etapa 3 deverá decidir como
-importar ou descartar dados locais sem duplicação.
+propriedade ativa e equipe já consultam o banco, e a 3A acrescentou o boundary
+rural ainda não consumido pelas telas. A Etapa 3C decidirá como importar ou
+descartar dados locais sem duplicação.
 
 ## 17. Comandos importantes
 
@@ -875,6 +914,7 @@ importar ou descartar dados locais sem duplicação.
 npm run dev          # executa a interface com hot reload
 npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
 npm run test:stage2  # testa autenticação e política de papéis
+npm run test:stage3a # testa guard, parsers, DTOs, inputs e erros do boundary
 npm run test:integration # recria agrozap_test e testa o PostgreSQL real
 npm run test:all     # executa testes unitários e de integração
 npm run typecheck    # verifica os tipos TypeScript
@@ -984,17 +1024,16 @@ Service
 
 Isso impede que alguém da Fazenda A altere manualmente uma requisição para
 agir na Fazenda B. Sessão, login e contexto de propriedade já implementam essa
-regra para as rotas e actions da Etapa 2. A futura API rural deverá reutilizar
-o contexto revalidado, sem aceitar um `propertyId` solto do cliente.
+regra para as rotas e actions da Etapa 2. O boundary rural da 3A reutiliza o
+contexto revalidado e recusa `propertyId` solto ou aninhado no input público.
 
 ### Números em português do Brasil
 
-A camada de entrada rural converterá um texto brasileiro como `"2,5"` para o valor
-canônico `"2.5"` antes de chamar os services. O domínio não receberá texto
-ambíguo, e uma IA futura nunca enviará valores não validados diretamente ao
-banco. Essa normalização rural completa ainda pertence à Etapa 3. A
-normalização de telefone do login já existe e é uma regra separada: formatos
-brasileiros aceitos são convertidos para `+55` seguido de DDD e número.
+A camada da 3A converte um texto brasileiro como `"2,5"` para o valor canônico
+`"2.5"` antes de chamar os services. Também aceita `1.234,56`, `1000` e
+`1000.25`, mas recusa `1.234` por ambiguidade. Uma IA futura nunca deverá enviar
+valores não validados diretamente ao banco. A normalização de telefone do
+login continua sendo uma regra separada.
 
 ## 21. Como funciona a validação PostgreSQL atual
 
@@ -1015,7 +1054,11 @@ testes reais ficam em `tests/integration/`:
   concorrência, auditoria e isolamento da Etapa 2;
 - `stage2-1-multitenancy.integration.test.ts`: tenta diretamente as oito
   relações cross-property, confirma o grafo equivalente dentro da mesma
-  Property e cobre quatro tentativas de reparenting por `propertyId`.
+  Property e cobre quatro tentativas de reparenting por `propertyId`;
+- `stage3a-domain.integration.test.ts`: cobre coerência semântica, ator WEB,
+  `performedBy`, atomicidade e concorrência da operação combinada;
+- `stage3a-queries.integration.test.ts`: cobre queries A×B, paginação,
+  ordenação e recusa de cursor fora do escopo.
 
 ### Proteção do banco de desenvolvimento
 
@@ -1080,6 +1123,11 @@ agregador `test:all`.
 Os treze cenários adicionais da Etapa 2.1 elevaram a suíte para 58/58 testes de
 integração e 83/83 em `test:all`, mantendo 25/25 unitários. `db:validate`,
 `db:generate`, typecheck, lint e build também passaram.
+
+A Etapa 3A acrescentou testes unitários e PostgreSQL aos arquivos acima e ao
+script `test:stage3a`. A validação final da nova contagem ainda está em
+andamento; os números só devem ser atualizados após toda a bateria obrigatória
+passar.
 
 ### Regressão de quantidade zero
 
@@ -1300,11 +1348,11 @@ da Etapa 3.
 ### Services rurais e ponte local
 
 `area.service.ts`, `product.service.ts`, `farm-record.service.ts` e
-`stock-movement.service.ts` já filtram IDs relacionados pela Property, mas
-ainda não estão expostos por Server Actions ou Route Handlers usados pelas
-telas. Antes da Etapa 3, cada escrita deverá receber um ator confiável derivado
-no servidor e exigir a capability correspondente. Valores como `propertyId`,
-papel ou ator nulo não podem virar autoridade vinda do browser.
+`stock-movement.service.ts` já filtravam IDs relacionados pela Property quando
+a Etapa 2.1 terminou, mas ainda não estavam expostos. A Etapa 3A passou a
+expô-los por um boundary que deriva ator e Property no servidor e exige a
+capability correspondente. As telas continuam sem usar essas actions até a
+3B; `propertyId`, papel ou ator nulo nunca viram autoridade do browser.
 
 O `AgroAppContext` continua usando
 `agrozap-mvp-data:<propertyId>`. Essa chave impede que a navegação normal misture
@@ -1325,3 +1373,127 @@ propagação automática de `propertyId` por cascata.
 Com esses casos, a validação final aprovou 58/58 testes de integração e 83/83
 em `test:all`, mantendo 25/25 unitários. `db:validate`, `db:generate`,
 typecheck, lint e build também passaram.
+
+## 24. Mapa da Etapa 3A
+
+### Boundary de mutações WEB
+
+As actions ficam em
+`src/app/(authenticated)/(property)/rural-actions.ts`:
+
+- `createAreaAction`;
+- `createStockProductAction`;
+- `createFarmRecordAction`;
+- `registerStockMovementAction`, para IN, OUT e ADJUSTMENT;
+- `reverseStockMovementAction`;
+- `createFarmRecordWithStockMovementAction`.
+
+Todas chamam `requireActivePropertyContext()`. O navegador fornece apenas dados
+funcionais; `rural-web-inputs.ts` recusa em qualquer profundidade
+`propertyId`, `createdByUserId`, `actorUserId`, `role`, `capability` e `source`.
+Depois disso, a action deriva Property e ator atuais e fixa `RecordSource.WEB`.
+Ela também passa o singleton `server-only` `RURAL_WEB_AUTHORIZATION` ao
+service. Esse marcador exato é obrigatório em todas as seis mutações WEB;
+`undefined` e qualquer objeto forjado são recusados. Na mesma transação que
+fará a escrita, o service bloqueia e relê a membership e o User, aplicando de
+novo a capability atual; uma autorização lida antes de um downgrade não fica
+congelada. Somente fontes explicitamente não-WEB podem omitir o marcador.
+
+### Capabilities por operação
+
+| Operação | Capability exigida |
+| --- | --- |
+| listar áreas, produtos, registros e movimentos | `READ_PROPERTY` |
+| criar área | `CREATE_AREA` |
+| criar produto sem saldo inicial | `CREATE_PRODUCT` |
+| criar produto com saldo inicial positivo | `CREATE_PRODUCT` + `ADJUST_STOCK` |
+| criar FarmRecord | `CREATE_RECORD` |
+| IN ou OUT | `MOVE_STOCK` |
+| ADJUSTMENT | `ADJUST_STOCK` |
+| reversão | `REVERSE_STOCK` |
+| ler AuditLog | `VIEW_AUDIT` |
+| FarmRecord + IN/OUT | `CREATE_RECORD` + `MOVE_STOCK` |
+| FarmRecord + ADJUSTMENT | `CREATE_RECORD` + `ADJUST_STOCK` |
+
+O guard não compara papéis nas actions. Ele consulta a matriz central:
+
+- OWNER e MANAGER possuem todas as capabilities;
+- EMPLOYEE possui `READ_PROPERTY`, `CREATE_RECORD` e `MOVE_STOCK`;
+- VIEWER possui somente `READ_PROPERTY`.
+
+### Queries e cursor
+
+`rural-query.service.ts` separa wrappers públicos sem Property fornecida pelo
+browser das implementações internas com `propertyId` explícito. Estas só são
+expostas ao harness quando o marcador seguro do runner de integração está
+ativo. Todas as consultas Prisma possuem filtro de Property.
+
+Áreas e produtos retornam somente linhas ativas, ordenadas por nome e ID.
+Registros e movimentos usam `occurredAt DESC, id DESC`; auditoria usa
+`createdAt DESC, id DESC`. O cursor codifica versão, tipo, Property, instante e
+ID em Base64 URL-safe. Antes da próxima página, a âncora é confirmada na mesma
+Property. O limite padrão é 25, o máximo é 100 e a query solicita apenas
+`limit + 1`.
+
+### Parsing de decimal e data
+
+`rural-input-normalization.ts` produz texto decimal canônico:
+
+| Entrada | Saída |
+| --- | --- |
+| `12,5` | `12.5` |
+| `1.234,56` | `1234.56` |
+| `1000` | `1000` |
+| `1000.25` | `1000.25` |
+| `1.234` | erro de ambiguidade |
+
+Datas de colunas `Date` usam `YYYY-MM-DD` em `00:00Z`. `occurredAt` aceita
+data simples ancorada em `12:00Z` ou instante com `Z`/offset explícito. Entradas
+vazias, calendários impossíveis e horário sem timezone falham claramente.
+
+### DTOs e erros
+
+`rural-dtos.ts` define `AreaDto`, `StockProductDto`, `FarmRecordDto`,
+`StockMovementDto`, `AuditLogDto` e `CursorPage<T>`. Nenhum deles contém
+`Prisma.Decimal`, `Date` ou modelo Prisma cru.
+
+`rural-action-result.ts` cria o envelope:
+
+```text
+sucesso → { ok: true, data: DTO }
+falha conhecida → { ok: false, error: { code, message } }
+falha interna → { ok: false, error: { code: INTERNAL_ERROR, message genérica } }
+```
+
+### Consistência e transação combinada
+
+`stock-movement.service.ts` revalida o FarmRecord vinculado ao criar uma nova
+movimentação. Produto diferente, área diferente, diferença entre `null` e ID
+ou FarmRecord sem produto geram `FARM_RECORD_MOVEMENT_MISMATCH`.
+
+Essa igualdade semântica não é aplicada retroativamente à reversão histórica.
+Se um movimento legado same-Property já possui vínculo incompatível, a
+reversão pode espelhar suas referências e snapshots para permitir a correção
+compensatória, sem reescrever o original nem o FarmRecord antigo.
+
+`createFarmRecordWithStockMovement` executa o helper transacional do registro e
+o helper de estoque no mesmo `Prisma.TransactionClient`. O movimento recebe
+`farmRecordId`, `productId` e `areaId` do registro já validado; não aceita uma
+segunda versão desses IDs no input combinado. Saldo, registro, movimento e
+auditorias confirmam juntos ou são revertidos juntos.
+
+### Limite desta subetapa
+
+A 3A não alterou:
+
+- `AgroAppContext`;
+- as páginas client de área, anotação, estoque e dashboard;
+- `agrozap-mvp-data`;
+- `agrozap-mvp-data:<propertyId>`;
+- `agrozap-mvp-data:property-scope-migration:v1`;
+- `agrozap-settings`.
+
+A 3B conectará essas páginas ao boundary. A 3C tratará legado, cross-session e
+histórico final, sem importação silenciosa. A validação final da 3A aprovou
+19/19 testes unitários próprios, 78/78 de integração e 122/122 em `test:all`,
+além de schema, geração do client, typecheck, lint e build.

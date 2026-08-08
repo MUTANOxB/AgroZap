@@ -1,3 +1,5 @@
+import "server-only";
+
 import { Prisma } from "@/generated/prisma/client";
 
 export async function findUserIdsWithoutActivePropertyMembership(

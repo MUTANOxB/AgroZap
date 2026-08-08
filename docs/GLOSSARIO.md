@@ -5,8 +5,9 @@ foram baseados no código atual do AgroZap.
 
 Durante a migração, autenticação, propriedade ativa e equipe já usam o
 PostgreSQL. Áreas, anotações e produtos das telas ainda usam `localStorage`,
-separado por propriedade, embora seus models e services de banco já existam.
-Sempre observe qual desses fluxos o exemplo descreve.
+separado por propriedade. A Etapa 3A já acrescentou o boundary server-side,
+queries e comandos rurais seguros, mas as telas só passarão a consumi-los na
+3B. Sempre observe qual desses fluxos o exemplo descreve.
 
 ## React
 
@@ -95,6 +96,8 @@ Server Action é uma função do servidor que um formulário pode chamar. Ela us
 expor o Prisma ao navegador.
 
 Login, logout, seleção de propriedade e mudanças da equipe usam Server Actions.
+A Etapa 3A também criou `rural-actions.ts` para operações rurais autorizadas;
+essas actions ainda não são chamadas pelas páginas rurais na 3A.
 
 ## Proxy do Next.js
 
@@ -167,6 +170,11 @@ Esses dados ficam somente naquele navegador e computador. O `localStorage` não
 dispositivo compartilhado, outra conta pode enumerar chaves de Properties
 abertas anteriormente. A chave por `propertyId` evita mistura na navegação
 normal, mas não é uma fronteira de confidencialidade multi-tenant.
+
+A Etapa 3A não removeu, importou nem mudou silenciosamente
+`agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>`, o marcador de migração ou
+`agrozap-settings`. A 3B conectará as telas ao servidor; a 3C decidirá o
+tratamento do legado e do uso cross-session sem importação silenciosa.
 
 ## Props
 
@@ -855,9 +863,10 @@ evitar cálculos imprecisos com ponto flutuante.
 Valor canônico é o formato único que o domínio aceita depois que a entrada foi
 validada e normalizada.
 
-Exemplo: uma pessoa brasileira pode digitar `2,5`, mas a futura camada de
-entrada converterá esse texto para `2.5` antes de chamar um service. O banco e
-o domínio não precisam adivinhar qual separador decimal foi usado.
+Exemplo: uma pessoa brasileira pode digitar `2,5`, e a camada rural da 3A
+converte esse texto para `2.5` antes de chamar um service. Ela também entende
+`1.234,56` e `1000.25`, mas recusa `1.234` porque o ponto poderia significar
+decimal ou milhar. O domínio não adivinha.
 
 ## DateTime
 
@@ -867,7 +876,9 @@ Exemplo: `occurredAt` informa quando uma movimentação ou anotação aconteceu.
 `createdAt` informa quando o registro entrou no sistema.
 
 Isso é diferente de validade e data de compra, que no schema usam apenas a
-parte de data do PostgreSQL.
+parte de data do PostgreSQL. Na 3A, essas datas simples usam `YYYY-MM-DD` em
+`00:00Z`. Uma data simples de `occurredAt` é ancorada em `12:00Z`; se houver
+horário, `Z` ou offset precisa ser informado.
 
 ## Timestamptz
 
@@ -901,6 +912,9 @@ Transaction, ou transação, reúne várias alterações em uma única operaçã
 Exemplo: uma saída de estoque precisa atualizar o saldo, criar
 `StockMovement` e criar `AuditLog`. Se a auditoria falhar, saldo e movimento
 também são desfeitos.
+
+Na operação combinada da 3A, a mesma transação também inclui o `FarmRecord` e
+seu AuditLog. Assim, registro e movimento não ficam parcialmente gravados.
 
 Uma forma simples de lembrar é:
 
@@ -1079,6 +1093,16 @@ Capability é uma permissão concreta derivada do papel, como
 ler, registrar e movimentar estoque; `VIEWER` possui somente leitura. A gestão
 de equipe aplica ainda regras de hierarquia mais restritas.
 
+Na 3A, `property-capability-guard.ts` aplica essa matriz no servidor. Esconder
+um botão continua sendo apenas UX: criar área exige `CREATE_AREA`, produto
+exige `CREATE_PRODUCT`, ajuste exige `ADJUST_STOCK`, reversão exige
+`REVERSE_STOCK` e auditoria exige `VIEW_AUDIT`. Nas mutações WEB, o papel é
+relido sob lock dentro da transação antes da escrita, para que uma capability
+revogada em paralelo não continue válida por ter sido lida antes pela action.
+Essa releitura exige o singleton interno `RURAL_WEB_AUTHORIZATION` em toda
+mutação WEB: `undefined` e qualquer marcador forjado são recusados. Fontes
+explicitamente não-WEB não dependem desse marcador.
+
 ## Último OWNER
 
 Último `OWNER` é o único proprietário que restou em uma `Property`. O AgroZap
@@ -1126,6 +1150,10 @@ origem, data, pessoas e motivo.
 Exemplo: uma saída de 3 litros com saldo de 86 registra `balanceBefore = 86` e
 `balanceAfter = 83`.
 
+Se uma nova movimentação possui `farmRecordId`, ela precisa usar o mesmo
+produto e a mesma área do FarmRecord, inclusive quando a área é `null`. Um
+FarmRecord sem produto não pode receber uma nova movimentação.
+
 ## Snapshot histórico
 
 Snapshot histórico é uma cópia de um nome no momento em que um evento
@@ -1144,6 +1172,12 @@ apagá-lo.
 Exemplo: a reversão de uma saída de 3 litros cria uma entrada de 3 ligada ao
 movimento original. Depois pode ser criada a saída correta.
 
+A consistência semântica `FarmRecord` ↔ `StockMovement` é obrigatória para
+novas movimentações. Uma reversão, porém, pode espelhar vínculos históricos
+legados semanticamente incompatíveis para preservar a capacidade de correção
+compensatória. Ela mantém a mesma Property, as referências e os snapshots do
+movimento original, sem alterar o fato histórico antigo.
+
 ## createdBy e performedBy
 
 `createdBy` indica quem registrou ou confirmou. `performedBy` indica quem
@@ -1153,9 +1187,10 @@ Exemplo: João registra “Pedro aplicou o produto”. João é `createdBy`; Ped
 `performedBy`.
 
 O login já identifica quem executa as novas actions do servidor. Áreas,
-anotações e estoque das telas ainda pertencem ao fluxo local; quando migrarem
-para o banco, deverão receber `createdBy` da sessão revalidada, nunca de um ID
-livre enviado pelo navegador.
+anotações e estoque das telas ainda pertencem ao fluxo local. No boundary da
+3A, `createdBy` já vem obrigatoriamente da sessão revalidada;
+`performedByUserId` é apenas candidato e precisa possuir membership ativa na
+mesma Property. A UI usará isso na 3B.
 
 ## RecordSource
 
@@ -1167,20 +1202,101 @@ Exemplo: o seed usa `SYSTEM`, e as actions web de equipe usam `WEB`. Futuras
 integrações poderão usar `WHATSAPP` ou `API`; o valor no enum não prova que o
 canal correspondente já esteja implementado.
 
+As actions rurais da 3A fixam `WEB` no servidor. O navegador não pode escolher
+ou forjar esse campo.
+
 ## API/Server do domínio
 
 É a camada de servidor que recebe pedidos das páginas, identifica o usuário e
 chama os services.
 
-O AgroZap já possui `/api/clima`, handlers do Auth.js e Server Actions para
-login, logout, propriedade e equipe. Ainda não possui a camada que liga os
-cadastros de áreas, produtos e anotações ao PostgreSQL.
+O AgroZap possui `/api/clima`, handlers do Auth.js, Server Actions para login,
+logout, propriedade e equipe e, desde a 3A, um boundary rural com actions e
+queries. As páginas de áreas, produtos e anotações ainda não chamam essa camada;
+essa integração pertence à 3B.
 
 O fluxo já usado pela equipe e planejado para os cadastros rurais é:
 
 ```text
-Tela → API/Server → Service → Prisma → PostgreSQL
+Tela na 3B → boundary da 3A → Service → Prisma → PostgreSQL → DTO
 ```
+
+## Server boundary
+
+Server boundary é a fronteira que separa dados controlados pelo navegador das
+decisões confiáveis do servidor.
+
+No AgroZap, ele revalida sessão e Property ativa, exige capability, deriva
+`propertyId` e ator, normaliza a entrada e somente então chama um service. Os
+arquivos rurais usam `server-only` para impedir que Prisma seja levado a um
+Client Component. Em mutações WEB, o singleton interno de autorização também
+é obrigatório; sua ausência ou substituição por um objeto forjado falha em vez
+de transformar esquecimento do caller em confiança implícita.
+
+## ID candidato
+
+ID candidato é um identificador enviado para o servidor sem ser tratado como
+prova de acesso.
+
+Exemplo: `productId`, `areaId`, `farmRecordId`, `movementId` e
+`performedByUserId` podem vir de um formulário. O service ainda precisa
+confirmar que a entidade existe, está válida e pertence à Property atual.
+Conhecer um CUID da Property B não autoriza seu uso na Property A.
+
+## Tenant scope
+
+Tenant scope é o filtro explícito que limita uma operação à sua Property.
+
+Uma query de Area, StockProduct, FarmRecord, StockMovement ou AuditLog precisa
+incluir `propertyId`. Na 3A, wrappers públicos obtêm esse ID do contexto; as
+implementações por ID só são abertas ao harness sob o marcador do runner de
+integração.
+
+## DTO
+
+DTO significa objeto de transferência de dados. É um formato simples criado
+para atravessar a fronteira entre servidor e navegador.
+
+Os DTOs rurais convertem `Prisma.Decimal` para string, `Date` para ISO e JSONB
+para valores JSON serializáveis. Eles não carregam métodos do Prisma nem campos
+internos que a tela não pediu.
+
+## Paginação por cursor
+
+Paginação divide um histórico em páginas. O cursor identifica com segurança o
+ponto de continuação da página anterior.
+
+Na 3A, o cursor é opaco para a UI e guarda versão, tipo de histórico, Property,
+instante e ID. Ele não pode ser reutilizado em outra Property ou trocar
+FarmRecord por AuditLog. A ordenação usa data e ID para não duplicar itens em
+empates.
+
+## Envelope de erro seguro
+
+Envelope de erro seguro é a resposta pequena e previsível enviada ao
+navegador:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "FORBIDDEN",
+    "message": "Você não tem permissão para realizar esta operação."
+  }
+}
+```
+
+Erros conhecidos mantêm código e mensagem aprovados. Erros do Prisma ou falhas
+desconhecidas viram `INTERNAL_ERROR`; stack, SQL e segredos ficam fora da
+resposta.
+
+## Operação atômica
+
+Operação atômica confirma todas as partes ou nenhuma.
+
+Na 3A, `createFarmRecordWithStockMovement` cria FarmRecord, altera saldo, cria
+StockMovement e grava auditorias numa única transação. Saldo insuficiente ou
+qualquer outra falha não pode deixar um FarmRecord órfão.
 
 ## Variável de ambiente
 
@@ -1203,7 +1319,7 @@ Esse conceito é **PLANEJADO**. A entidade não foi criada nesta etapa porque o
 fluxo de validade e confirmação ainda precisa ser definido. A autenticação web
 já existe, mas não define sozinha esses estados.
 
-## Resumo dos três fluxos
+## Resumo dos quatro fluxos/estados
 
 ```text
 ATUAL — autenticação, propriedade e equipe
@@ -1212,11 +1328,14 @@ Tela/layout/action → Auth e autorização → Service → Prisma → PostgreSQ
 ATUAL — cadastros rurais
 Tela → Context → localStorage por Property
 
-ETAPA 3 RECOMENDADA
-Tela rural → API/Server autorizado → Service → Prisma → PostgreSQL
+ATUAL — boundary rural da 3A, ainda sem consumidor nas páginas
+Server Action/query → contexto + capability → Service → Prisma → DTO
+
+PLANEJADO — integração da 3B
+Tela rural → boundary da 3A → PostgreSQL compartilhado
 ```
 
 O primeiro já usa identidade e banco reais. O segundo mantém o MVP rural
-funcionando de forma local e isolada por propriedade. O terceiro reutilizará a
-autorização da Etapa 2 para tornar esses cadastros compartilhados; ainda não foi
-iniciado.
+funcionando de forma local e isolada por propriedade. O terceiro já existe no
+servidor e reutiliza a autorização da Etapa 2. O quarto conectará as páginas e
+tornará os cadastros compartilhados entre sessões. A 3C tratará o legado.

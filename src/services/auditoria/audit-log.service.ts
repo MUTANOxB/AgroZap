@@ -1,3 +1,5 @@
+import "server-only";
+
 import { Prisma, type RecordSource } from "@/generated/prisma/client";
 
 export type AuditLogInput = {

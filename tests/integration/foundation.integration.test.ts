@@ -4,7 +4,17 @@ import { assertSafeIntegrationRuntime } from "./test-database";
 
 assertSafeIntegrationRuntime(process.env);
 
-const [prismaModule, prismaLib, stockService, stockErrors, recordService, productService, areaService, fixtures] =
+const [
+  prismaModule,
+  prismaLib,
+  stockService,
+  stockErrors,
+  recordService,
+  productService,
+  areaService,
+  ruralWebAuthorization,
+  fixtures,
+] =
   await Promise.all([
     import("@/generated/prisma/client"),
     import("@/lib/prisma"),
@@ -13,6 +23,7 @@ const [prismaModule, prismaLib, stockService, stockErrors, recordService, produc
     import("@/services/registros/farm-record.service"),
     import("@/services/estoque/product.service"),
     import("@/services/talhoes/area.service"),
+    import("@/services/autorizacao/rural-web-authorization"),
     import("./fixtures"),
   ]);
 
@@ -21,15 +32,54 @@ const {
   FarmRecordType,
   Prisma,
   ProductCategory,
+  PropertyRole,
   StockMovementType,
 } = prismaModule;
 const { db } = prismaLib;
-const { registerStockMovement, reverseStockMovement } = stockService;
+const {
+  registerStockMovement: registerStockMovementService,
+  reverseStockMovement: reverseStockMovementService,
+} = stockService;
 const { StockDomainError } = stockErrors;
-const { createFarmRecord, FarmRecordDomainError } = recordService;
-const { createStockProduct } = productService;
-const { createArea } = areaService;
+const {
+  createFarmRecord: createFarmRecordService,
+  FarmRecordDomainError,
+} = recordService;
+const { createStockProduct: createStockProductService } = productService;
+const { createArea: createAreaService } = areaService;
+const { RURAL_WEB_AUTHORIZATION } = ruralWebAuthorization;
 const { createStockScenario, createTenant } = fixtures;
+
+// Todos os comandos de service deste arquivo representam chamadas WEB. Os
+// helpers deixam explícito no ponto de entrada do teste que o singleton
+// server-only sempre acompanha essas mutações.
+function registerStockMovement(
+  command: Parameters<typeof registerStockMovementService>[0],
+) {
+  return registerStockMovementService(command, RURAL_WEB_AUTHORIZATION);
+}
+
+function reverseStockMovement(
+  command: Parameters<typeof reverseStockMovementService>[0],
+) {
+  return reverseStockMovementService(command, RURAL_WEB_AUTHORIZATION);
+}
+
+function createFarmRecord(
+  command: Parameters<typeof createFarmRecordService>[0],
+) {
+  return createFarmRecordService(command, RURAL_WEB_AUTHORIZATION);
+}
+
+function createStockProduct(
+  command: Parameters<typeof createStockProductService>[0],
+) {
+  return createStockProductService(command, RURAL_WEB_AUTHORIZATION);
+}
+
+function createArea(command: Parameters<typeof createAreaService>[0]) {
+  return createAreaService(command, RURAL_WEB_AUTHORIZATION);
+}
 
 after(async () => {
   await db.$disconnect();
@@ -596,6 +646,15 @@ test("usuário histórico desativado não impede reversão por outro usuário at
   await db.user.update({
     where: { id: performedBy.id },
     data: { deactivatedAt: new Date() },
+  });
+  await db.propertyMember.update({
+    where: {
+      propertyId_userId: {
+        propertyId: scenario.property.id,
+        userId: reversingUser.id,
+      },
+    },
+    data: { role: PropertyRole.MANAGER },
   });
 
   await expectStockError(

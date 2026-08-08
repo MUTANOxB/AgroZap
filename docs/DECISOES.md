@@ -110,7 +110,9 @@ manutenções e observações sem obrigar todas elas a alterar estoque.
 - `Annotation`, formato legado usado pelas telas e pelo `localStorage`;
 - `FarmRecord`, formato persistente do PostgreSQL.
 
-A conversão será feita na futura camada API/Server.
+A Etapa 3A criou inputs normalizados e DTOs para essa fronteira. A conversão
+das páginas legadas para esses contratos acontecerá na 3B; a 3A não alterou o
+`Annotation` do `localStorage`.
 
 ## 9. Saldo rápido e histórico de movimentos
 
@@ -169,8 +171,9 @@ guardar contexto variável sem transformar cada detalhe em uma coluna.
 **Por quê:** limitar o armazenamento apagaria informação útil para conferência
 e auditoria.
 
-**Consequência:** a interface futura poderá mostrar dez itens por página, mas
-isso será paginação de consulta, não exclusão dos itens antigos.
+**Consequência:** as queries da Etapa 3A paginam `FarmRecord`,
+`StockMovement` e `AuditLog` no PostgreSQL. A UI poderá mostrar uma página por
+vez sem excluir nem carregar todo o histórico.
 
 ## 14. Correções criam reversão e novo registro
 
@@ -205,8 +208,9 @@ legado do `localStorage` até a migração das telas.
 também não devem sofrer imprecisões comuns de números de ponto flutuante.
 
 **Consequência:** comandos dos services recebem números decimais como texto e
-os convertem de forma controlada. A API futura deverá converter corretamente os
-campos de formulário, que hoje ainda usam `number` ou texto no frontend.
+os convertem de forma controlada. O boundary da Etapa 3A normaliza os campos de
+entrada antes dos services; as telas continuam usando `number` ou texto até a
+3B.
 
 A validação de “maior que zero” usa `greaterThan(0)`, e não `isPositive()`. A
 Etapa 1.2 mostrou que `isPositive()` também aceita `+0`. Com a comparação
@@ -221,9 +225,10 @@ de compra usam o tipo `Date` do PostgreSQL.
 **Por quê:** um acontecimento precisa preservar instante e fuso de forma
 consistente, enquanto uma validade normalmente representa apenas o dia.
 
-**Consequência:** a futura API deverá definir como apresentar datas no fuso da
-propriedade. Não se deve salvar toda data como texto apenas porque o formulário
-HTML entrega uma string.
+**Consequência:** a Etapa 3A interpreta `YYYY-MM-DD` em `00:00Z` para campos
+`Date`; uma data rural simples de `occurredAt` usa `12:00Z`, e horários exigem
+`Z` ou offset explícito. A apresentação no fuso adequado continua sendo uma
+responsabilidade da UI, sem salvar toda data como texto.
 
 ## 18. Nomes oficiais e apelidos normalizados
 
@@ -292,10 +297,10 @@ atual de evoluir.
 **Por quê:** áreas, anotações, estoque e dashboard já dependem dele. Uma troca
 total nesta etapa aumentaria muito o risco de quebrar o MVP.
 
-**Consequência:** schema e services coexistem temporariamente com o
+**Consequência:** schema, boundary e services coexistem temporariamente com o
 `localStorage`. Os dados do navegador não são copiados automaticamente pelo
-seed. A futura migração deverá declarar quando ler dados locais, como evitar
-duplicação e quando remover a compatibilidade.
+seed nem pela Etapa 3A. A 3B conectará a UI; a 3C deverá declarar quando ler
+dados locais, como evitar duplicação e quando remover a compatibilidade.
 
 ## 23. O build sempre gera o Prisma Client
 
@@ -394,22 +399,23 @@ Service
 
 O cookie contém somente um ID candidato. `requireActivePropertyContext`
 revalida usuário, propriedade ativa e `PropertyMember` no PostgreSQL antes de
-entregar o contexto ao layout e aos Server Actions. Os services rurais deverão
-receber esse mesmo contexto autorizado quando forem ligados às telas.
+entregar o contexto ao layout e aos Server Actions. Os services rurais recebem
+autoridade desse mesmo contexto por meio das actions da 3A; a ligação com as
+telas ocorrerá na 3B.
 
 ## 29. Números brasileiros são normalizados na entrada
 
 **Decisão:** o domínio trabalha com valor decimal canônico, como `2.5`, e a
-futura camada de entrada converte texto brasileiro, como `2,5`, antes de chamar
-um service.
+camada de entrada converte texto brasileiro, como `2,5`, antes de chamar um
+service.
 
 **Por quê:** vírgula e ponto têm significados diferentes dependendo do formato
 de entrada. Essa diferença não deve chegar ambígua ao banco.
 
-**Consequência:** formulários, API, WhatsApp ou uma IA futura devem validar e
-normalizar o texto primeiro. A IA nunca enviará um valor textual não validado
-diretamente ao PostgreSQL. Esta etapa não transforma os parsers atuais em
-interpretadores universais.
+**Consequência:** `rural-input-normalization.ts` implementa essa regra para o
+boundary WEB da 3A. Ele aceita formatos brasileiros e canônicos inequívocos e
+recusa entradas vazias, inválidas ou ambíguas. WhatsApp ou IA futuros deverão
+reutilizar a mesma ideia sem enviar texto não validado ao PostgreSQL.
 
 ## 30. Anotação local e estoque formam uma operação composta
 
@@ -419,10 +425,10 @@ depois que produto, quantidade e próximo saldo forem validados juntos.
 **Por quê:** o usuário percebe a anotação e a mudança de estoque como uma única
 ação. Salvar apenas uma das duas partes deixa o MVP inconsistente.
 
-**Consequência:** o Context prepara as duas próximas listas e publica seus
-estados no mesmo evento. Se a validação falhar, nenhum estado muda. Essa é uma
-garantia da ponte local atual, não uma transação de banco; a futura API deverá
-orquestrar a operação persistente em uma transação real.
+**Consequência:** o Context ainda prepara as duas listas locais no mesmo evento.
+Em paralelo, a Etapa 3A criou `createFarmRecordWithStockMovement`, que executa
+a operação persistente em uma única transação `Serializable` com retry. A UI
+continuará no caminho local até a 3B.
 
 ## 31. Testes destrutivos usam um banco local exclusivo
 
@@ -583,10 +589,11 @@ global misturaria dados locais de escopos diferentes.
 para a primeira propriedade aberta após a mudança. Um marcador guarda qual
 propriedade recebeu a migração, e o legado não é apagado. Essa ponte não envia
 áreas, anotações nem produtos ao PostgreSQL; importação ou descarte definitivo
-pertence à Etapa 3. A separação por chave evita mistura na navegação normal,
+pertence à Etapa 3C. A separação por chave evita mistura na navegação normal,
 mas `localStorage` continua compartilhado por todos os usuários do mesmo perfil
 de navegador. Ele não é uma fronteira de confidencialidade em dispositivo
-compartilhado, e esse risco residual precisa permanecer explícito.
+compartilhado, e esse risco residual precisa permanecer explícito. A Etapa 3A
+não alterou nem importou essas chaves.
 
 ## 40. Proxy e Context de cliente não são fronteiras de segurança
 
@@ -598,8 +605,9 @@ sensível em layout, Server Action ou service no servidor.
 também não contém participação ou capacidades atuais.
 
 **Consequência:** esconder botão melhora a experiência, mas não concede nem
-revoga permissão. Escritas de equipe já usam o contexto autenticado e a política
-do servidor; futuras escritas rurais devem seguir a mesma regra na Etapa 3.
+revoga permissão. Escritas de equipe e o boundary rural da 3A usam contexto
+autenticado e política no servidor. As páginas rurais ainda não chamam esse
+boundary até a 3B.
 
 ## 41. Mitigação temporal não substitui controles distribuídos de login
 
@@ -715,22 +723,33 @@ legitimamente se chamar “Fazenda Santa Maria”.
 camada futura deverá desambiguá-los de forma estável sem redesenhar URLs nesta
 etapa.
 
-## 47. Services rurais precisam de capability e ator confiável antes da Etapa 3
+## 47. Services rurais precisam de capability e ator confiável
 
-**Decisão:** não expor os services rurais atuais diretamente por Server Action
-ou API até que cada escrita derive um ator confiável no servidor e aplique a
-capability adequada.
+**Decisão:** services rurais só podem ser expostos por um boundary que derive
+ator confiável no servidor e aplique a capability adequada.
 
 **Por quê:** os services já validam o escopo de IDs relacionados, mas ainda
 recebem `propertyId` e atores como parâmetros internos e não aplicam todas as
 capacidades da política da Etapa 2. Um ator nulo legítimo para operação interna
 não pode virar bypass em um fluxo web.
 
-**Consequência:** antes de iniciar a persistência rural da Etapa 3, a camada de
-servidor deve revalidar sessão, Property ativa e `PropertyMember`, derivar
-`actorUserId`/`propertyId`/papel, exigir `CREATE_AREA`, `CREATE_PRODUCT`,
-`CREATE_RECORD`, `MOVE_STOCK`, `ADJUST_STOCK` ou `REVERSE_STOCK` conforme a
-operação e cobrir negativas por papel. A Etapa 2.1 não iniciou a API rural.
+**Consequência:** a Etapa 3A implementa essa camada: revalida sessão, Property
+ativa e `PropertyMember`, deriva `actorUserId`/`propertyId`/papel, fixa origem
+`WEB` e exige `CREATE_AREA`, `CREATE_PRODUCT`, `CREATE_RECORD`, `MOVE_STOCK`,
+`ADJUST_STOCK` ou `REVERSE_STOCK`. O fato de a Etapa 2.1 ainda não possuir API
+rural permanece verdadeiro no seu contexto histórico.
+
+Para toda mutação WEB, a action precisa passar o singleton
+`RURAL_WEB_AUTHORIZATION`, marcado como `server-only` e mantido fora do input
+público. O service recusa com segurança tanto `undefined` quanto qualquer
+objeto forjado; somente o marcador exato permite reler e bloquear
+`PropertyMember` e `User` dentro da mesma transação da escrita e reaplicar a
+capability. Isso fecha tanto o bypass por esquecimento do marcador quanto a
+janela entre a leitura do contexto e um downgrade, remoção ou desativação
+concorrente, sem transformar o singleton em papel ou autorização congelada.
+Somente fontes explicitamente não-WEB podem usar o service sem esse marcador.
+Chamadores internos legados não são uma fronteira WEB; toda exposição ao
+navegador deve passar pelas actions e pelo marcador.
 
 ## 48. propertyId tenant-scoped é identidade estrutural imutável
 
@@ -753,3 +772,96 @@ um `UPDATE` direto, e SQL coordenado pode tentar trocar ao mesmo tempo a
 `propertyId` e suas referências. A garantia também depende dos services e das
 permissões do banco. Triggers, RLS e a operação administrativa de correção não
 serão implementados na Etapa 2.1.
+
+## 49. O boundary rural separa entrada pública de comando interno
+
+**Decisão:** receber `unknown` nas Server Actions e transformá-lo em inputs
+funcionais explícitos antes de chamar o domínio. Campos de autoridade são
+recusados recursivamente.
+
+**Por quê:** TypeScript não protege o runtime e um navegador pode acrescentar
+campos a qualquer payload. `propertyId`, ator, papel, capability e origem não
+podem competir com o contexto autenticado.
+
+**Consequência:** `rural-web-inputs.ts` aceita nomes, enums, IDs candidatos,
+quantidades, datas e textos funcionais. `rural-actions.ts` deriva
+`propertyId`/`createdByUserId`, fixa `source = WEB` e trata
+`performedByUserId` somente como candidato revalidado pelo service.
+
+## 50. O navegador recebe DTOs, não modelos Prisma
+
+**Decisão:** mapear cada resultado rural para DTO explícito.
+
+**Por quê:** `Prisma.Decimal`, `Date` e modelos crus misturam persistência com
+contrato público e podem perder precisão ou serializar de forma implícita.
+
+**Consequência:** `rural-dtos.ts` mantém IDs como string, Decimal como string
+canônica, data/hora como ISO, data de banco como `YYYY-MM-DD`, enums como valor
+estável e `null` como `null`. Os mappers selecionam somente campos necessários.
+
+## 51. Históricos usam paginação por cursor tenant-scoped
+
+**Decisão:** paginar registros, movimentos e auditorias com cursor opaco,
+versionado e vinculado ao tipo do histórico e à Property.
+
+**Por quê:** offset pode repetir ou pular itens quando novos eventos chegam, e
+um cursor de B não pode influenciar uma consulta de A.
+
+**Consequência:** a ordenação possui instante descendente e `id` descendente
+como desempate. O cursor ancora exatamente essa dupla, é revalidado na mesma
+Property e a query usa `take = limit + 1`. O padrão é 25 e o máximo é 100.
+
+## 52. Novos FarmRecord e StockMovement vinculados precisam concordar
+
+**Decisão:** ao criar uma nova movimentação com `farmRecordId`, movimento e
+registro devem ter o mesmo produto e a mesma área, inclusive `null`; um
+registro sem produto não pode ser vinculado a essa nova movimentação.
+
+**Por quê:** pertencer à mesma Property impede IDOR, mas não impede atribuir a
+retirada do Produto Y a um registro do Produto X.
+
+**Consequência:** o service devolve `FARM_RECORD_MOVEMENT_MISMATCH` antes de
+gravar uma nova movimentação incompatível. A regra fica na aplicação, sem
+migration de conveniência. Ela não é aplicada retroativamente para impedir a
+reversão de um movimento histórico já persistido: reversões podem espelhar um
+vínculo legado semanticamente incompatível, desde que o escopo da Property e
+as demais referências históricas continuem válidos. Assim, a correção
+compensatória preserva o original sem reescrever o `FarmRecord` antigo.
+
+## 53. Registro + estoque é uma única transação persistente
+
+**Decisão:** `createFarmRecordWithStockMovement` executa criação do registro,
+alteração de saldo, movimento e auditorias dentro da mesma transação
+`Serializable` e do mesmo retry de estoque.
+
+**Por quê:** o usuário percebe as duas partes como uma ação. Duas transações
+independentes poderiam deixar registro órfão ou saldo sem registro.
+
+**Consequência:** o movimento combinado deriva produto e área do FarmRecord
+persistido. IN/OUT exige `CREATE_RECORD + MOVE_STOCK`; ajuste exige
+`CREATE_RECORD + ADJUST_STOCK`. Qualquer falha desfaz o conjunto inteiro.
+
+## 54. Erros WEB usam envelope seguro
+
+**Decisão:** devolver `{ ok, data }` no sucesso e `{ ok, error }` na falha,
+expondo somente códigos e mensagens aprovados.
+
+**Por quê:** stack, SQL, metadados do Prisma ou URL de banco não pertencem ao
+navegador.
+
+**Consequência:** erros conhecidos de input, capability e domínio são
+traduzidos. Prisma e qualquer erro desconhecido viram `INTERNAL_ERROR` com
+mensagem genérica. O erro original não é serializado.
+
+## 55. A Etapa 3 foi dividida em 3A, 3B e 3C
+
+**Decisão:** entregar primeiro o boundary seguro, depois conectar a interface e
+por último decidir a transição do legado.
+
+**Por quê:** misturar segurança server-side, troca completa das páginas e
+importação de dados locais numa única mudança ampliaria o risco de perda ou
+duplicação.
+
+**Consequência:** a 3A mantém `AgroAppContext` e todas as chaves locais
+intactas; a 3B conectará a UI ao PostgreSQL; a 3C tratará legado,
+cross-session e histórico final. Nenhuma importação acontece silenciosamente.
