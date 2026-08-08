@@ -15,7 +15,8 @@ com relações, transações, índices, dados JSON de auditoria e alterações
 concorrentes. PostgreSQL oferece uma base madura para esses requisitos.
 
 **Consequência:** desenvolvimento e produção precisam de uma `DATABASE_URL`.
-O `localStorage` continua apenas como compatibilidade temporária do MVP.
+Depois da 3B, o `localStorage` ativo guarda somente preferências locais de UI;
+o conteúdo rural antigo permanece intacto como legado para a 3C.
 
 ## 2. Prisma 7.9 como ORM
 
@@ -52,8 +53,8 @@ sistema. Separar os dados por propriedade evita mistura e prepara consultas e
 autorizações futuras.
 
 **Consequência:** todo service do domínio recebe a propriedade e verifica se as
-entidades relacionadas pertencem ao mesmo escopo. O texto fixo do dashboard
-ainda é parte do MVP e será substituído após a integração.
+entidades relacionadas pertencem ao mesmo escopo. Na 3B, contagens, atividades
+e estoque rurais do dashboard passaram a vir da Property ativa no banco.
 
 ## 5. PropertyMember em vez de user.propertyId
 
@@ -66,8 +67,8 @@ relação de muitos para muitos.
 **Consequência:** o papel fica no vínculo, com valores `OWNER`, `MANAGER`,
 `EMPLOYEE` e `VIEWER`. Os fluxos autenticados atuais resolvem o
 `PropertyMember` no PostgreSQL e aplicam uma política central de capacidades.
-As páginas rurais ainda precisam repetir essa autorização nas escritas
-persistentes que serão ligadas ao banco na Etapa 3.
+As páginas rurais ligadas na 3B usam as actions da 3A, que repetem essa
+autorização no servidor; `can()` continua sendo apenas adaptação visual.
 
 ## 6. Telefone em formato internacional
 
@@ -91,10 +92,10 @@ executou a atividade.
 registro e Pedro executou a retirada. Usar um único campo perderia essa
 informação.
 
-**Consequência:** `performedBy` pode ficar vazio quando não se aplica. Os campos
-de usuário também aceitam ausência para registros de sistema e para os dados
-rurais ainda mantidos no fluxo local. Nos novos fluxos humanos do servidor, a
-identidade vem da sessão revalidada, e não de um ID livre enviado pelo cliente.
+**Consequência:** `performedBy` pode ficar vazio quando não se aplica. Nos
+fluxos humanos do servidor, a identidade vem da sessão revalidada, e não de um
+ID livre enviado pelo cliente. A 3B mantém `responsibleName` como texto
+histórico e não o converte em `performedByUserId`.
 
 ## 8. Anotações persistentes se chamam FarmRecord
 
@@ -105,14 +106,14 @@ na interface.
 um comentário. `FarmRecord` representa compras, aplicações, vistorias,
 manutenções e observações sem obrigar todas elas a alterar estoque.
 
-**Consequência:** durante a migração existem dois tipos:
+**Consequência:** durante a transição existem dois tipos:
 
-- `Annotation`, formato legado usado pelas telas e pelo `localStorage`;
+- `Annotation`, formato legado preservado para o `localStorage` e a 3C;
 - `FarmRecord`, formato persistente do PostgreSQL.
 
-A Etapa 3A criou inputs normalizados e DTOs para essa fronteira. A conversão
-das páginas legadas para esses contratos acontecerá na 3B; a 3A não alterou o
-`Annotation` do `localStorage`.
+A Etapa 3A criou inputs normalizados e DTOs para essa fronteira. A 3B converteu
+as páginas ativas para esses contratos sem alterar nem importar os objetos
+`Annotation` antigos do navegador.
 
 ## 9. Saldo rápido e histórico de movimentos
 
@@ -196,8 +197,8 @@ deixaria o saldo negativo, a reversão é rejeitada.
 de um contador central ou do horário atual.
 
 **Consequência:** IDs do banco são strings e não devem ser gerados com
-`Date.now()`. Os IDs numéricos com `Date.now()` continuam somente no modelo
-legado do `localStorage` até a migração das telas.
+`Date.now()`. Depois da 3B, IDs numéricos com `Date.now()` permanecem somente no
+modelo legado do `localStorage`; as telas DB-backed usam CUID string.
 
 ## 16. Decimal para quantidades e dinheiro
 
@@ -209,8 +210,8 @@ também não devem sofrer imprecisões comuns de números de ponto flutuante.
 
 **Consequência:** comandos dos services recebem números decimais como texto e
 os convertem de forma controlada. O boundary da Etapa 3A normaliza os campos de
-entrada antes dos services; as telas continuam usando `number` ou texto até a
-3B.
+entrada antes dos services; as telas da 3B enviam o texto digitado sem usar
+`Number()` como autoridade.
 
 A validação de “maior que zero” usa `greaterThan(0)`, e não `isPositive()`. A
 Etapa 1.2 mostrou que `isPositive()` também aceita `+0`. Com a comparação
@@ -297,10 +298,10 @@ atual de evoluir.
 **Por quê:** áreas, anotações, estoque e dashboard já dependem dele. Uma troca
 total nesta etapa aumentaria muito o risco de quebrar o MVP.
 
-**Consequência:** schema, boundary e services coexistem temporariamente com o
-`localStorage`. Os dados do navegador não são copiados automaticamente pelo
-seed nem pela Etapa 3A. A 3B conectará a UI; a 3C deverá declarar quando ler
-dados locais, como evitar duplicação e quando remover a compatibilidade.
+**Consequência:** schema, boundary e services coexistiram temporariamente com o
+`localStorage` durante 3A. A 3B conectou a UI e reduziu o Context à preferência
+`modoUso`; a 3C deverá declarar quando ler dados locais, como evitar duplicação
+e quando remover ou descartar explicitamente o legado.
 
 ## 23. O build sempre gera o Prisma Client
 
@@ -400,8 +401,8 @@ Service
 O cookie contém somente um ID candidato. `requireActivePropertyContext`
 revalida usuário, propriedade ativa e `PropertyMember` no PostgreSQL antes de
 entregar o contexto ao layout e aos Server Actions. Os services rurais recebem
-autoridade desse mesmo contexto por meio das actions da 3A; a ligação com as
-telas ocorrerá na 3B.
+autoridade desse mesmo contexto por meio das actions da 3A; as telas foram
+ligadas a esse fluxo na 3B.
 
 ## 29. Números brasileiros são normalizados na entrada
 
@@ -417,7 +418,7 @@ boundary WEB da 3A. Ele aceita formatos brasileiros e canônicos inequívocos e
 recusa entradas vazias, inválidas ou ambíguas. WhatsApp ou IA futuros deverão
 reutilizar a mesma ideia sem enviar texto não validado ao PostgreSQL.
 
-## 30. Anotação local e estoque formam uma operação composta
+## 30. Anotação e estoque formam uma operação composta
 
 **Decisão:** no Modo Completo, uma anotação que exige estoque só é publicada
 depois que produto, quantidade e próximo saldo forem validados juntos.
@@ -425,10 +426,11 @@ depois que produto, quantidade e próximo saldo forem validados juntos.
 **Por quê:** o usuário percebe a anotação e a mudança de estoque como uma única
 ação. Salvar apenas uma das duas partes deixa o MVP inconsistente.
 
-**Consequência:** o Context ainda prepara as duas listas locais no mesmo evento.
-Em paralelo, a Etapa 3A criou `createFarmRecordWithStockMovement`, que executa
-a operação persistente em uma única transação `Serializable` com retry. A UI
-continuará no caminho local até a 3B.
+**Consequência:** na Etapa 1.1, o Context preparava duas listas locais no mesmo
+evento. A Etapa 3A criou `createFarmRecordWithStockMovement`, que executa a
+operação persistente em uma única transação `Serializable` com retry. Desde a
+3B, a UI usa exclusivamente essa operação combinada quando o registro também
+movimenta estoque.
 
 ## 31. Testes destrutivos usam um banco local exclusivo
 
@@ -595,6 +597,10 @@ de navegador. Ele não é uma fronteira de confidencialidade em dispositivo
 compartilhado, e esse risco residual precisa permanecer explícito. A Etapa 3A
 não alterou nem importou essas chaves.
 
+Esta decisão descreve a ponte criada na Etapa 2. Desde a 3B, o fluxo normal não
+executa mais essa cópia nem lê/escreve arrays rurais nessas chaves. Elas
+continuam fisicamente intactas para uma decisão explícita na 3C.
+
 ## 40. Proxy e Context de cliente não são fronteiras de segurança
 
 **Decisão:** usar `src/proxy.ts` para checagem otimista de login e
@@ -606,8 +612,8 @@ também não contém participação ou capacidades atuais.
 
 **Consequência:** esconder botão melhora a experiência, mas não concede nem
 revoga permissão. Escritas de equipe e o boundary rural da 3A usam contexto
-autenticado e política no servidor. As páginas rurais ainda não chamam esse
-boundary até a 3B.
+autenticado e política no servidor. As páginas rurais chamam esse boundary na
+3B e continuam sem confiar apenas no Context de cliente.
 
 ## 41. Mitigação temporal não substitui controles distribuídos de login
 
@@ -862,6 +868,65 @@ por último decidir a transição do legado.
 importação de dados locais numa única mudança ampliaria o risco de perda ou
 duplicação.
 
-**Consequência:** a 3A mantém `AgroAppContext` e todas as chaves locais
-intactas; a 3B conectará a UI ao PostgreSQL; a 3C tratará legado,
-cross-session e histórico final. Nenhuma importação acontece silenciosamente.
+**Consequência:** a 3A manteve `AgroAppContext` e todas as chaves locais
+intactas; a 3B conectou a UI ao PostgreSQL e preservou somente `modoUso` no
+Context; a 3C tratará legado, cross-session e histórico final. Nenhuma
+importação acontece silenciosamente.
+
+## 56. A página lê no servidor e o formulário grava pela Action existente
+
+**Decisão:** usar Server Page → query tenant-scoped → DTO serializável → Client
+Component para leitura, e Client → Server Action da 3A → service → PostgreSQL
+para escrita. Após sucesso na primeira página, `router.refresh()` solicita
+novamente os dados ao servidor; em página histórica de Anotações, a URL é
+substituída por `/registros` para exibir a criação, que é o item mais recente.
+
+**Por quê:** manter um segundo array rural autoritativo no React recriaria os
+problemas de divergência do armazenamento local e impediria que refresh, outra
+aba ou outra sessão enxergassem naturalmente o estado confirmado.
+
+**Consequência:** estado client fica restrito a formulário, pending, erro e
+seleções. Prisma continua fora dos Client Components; Property, ator,
+capability e origem não são aceitos como autoridade do navegador.
+
+## 57. O AgroAppContext guarda somente preferência de interface
+
+**Decisão:** remover áreas, anotações, produtos, mutadores rurais, dados demo e
+persistência rural do `AgroAppContext`, mantendo `modoUso` em
+`agrozap-settings`.
+
+**Por quê:** na 3B, PostgreSQL é a fonte rural. Ler silenciosamente o legado
+criaria uma mistura impossível de distinguir e poderia duplicar ou atribuir
+dados à Property errada.
+
+**Consequência:** `agrozap-mvp-data`, suas variantes por Property e o marcador
+de migração não são lidos, escritos, apagados ou importados pelo fluxo normal.
+Permanecem intactos até a estratégia explícita da 3C.
+
+## 58. Registro com estoque usa somente a operação combinada
+
+**Decisão:** quando uma anotação também faz IN ou OUT, a interface chama
+`createFarmRecordWithStockMovementAction` em vez de duas actions sucessivas.
+
+**Por quê:** criar primeiro o FarmRecord e movimentar depois permitiria registro
+órfão, saldo sem registro ou falha parcial entre duas transações.
+
+**Consequência:** produto e área do movimento são derivados do FarmRecord;
+saldo insuficiente desfaz o conjunto. A interface não calcula nem persiste o
+novo saldo.
+
+## 59. O Dashboard separa dados rurais reais de blocos sem domínio
+
+**Decisão:** obter contagens, atividades recentes e estoque da Property ativa
+no PostgreSQL. Tarefas podem continuar demonstrativas, e clima permanece uma
+integração independente, pois esses domínios não fazem parte da persistência
+rural da 3B.
+
+**Por quê:** dados demo não podem aparecer como se fossem áreas, registros,
+produtos ou saldos reais de uma Property vazia.
+
+**Consequência:** o resumo usa contagens próprias tenant-scoped, sem chamar o
+tamanho da primeira página de total. Banco vazio mostra zeros e estados vazios
+honestos. A 3B passou pela validação técnica com 142/142 testes e permanece em
+revisão humana, enquanto a 3C continua pendente; a Etapa 3 inteira não é
+declarada concluída.

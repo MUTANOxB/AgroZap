@@ -4,6 +4,94 @@ Este arquivo registra mudanças importantes em linguagem simples. Ele não
 substitui o histórico do Git; seu objetivo é explicar o motivo e o impacto de
 cada etapa para quem está estudando o projeto.
 
+## 08/08/2026 — Interface rural DB-backed (Etapa 3B, validada tecnicamente)
+
+### Estado da entrega
+
+A implementação da Etapa 3B ligou Talhões, Estoque, Anotações e os dados
+rurais do Dashboard ao PostgreSQL. A mudança reutiliza integralmente o boundary
+seguro da 3A e não cria um segundo caminho de mutação. Nenhuma migration nem
+alteração de schema faz parte desta etapa.
+
+A entrega passou pela bateria técnica e permanece **em revisão humana**, sem
+commit ou push. Foram aprovados Stage 1.1 8/8, Stage 2 17/17, Stage 3A 19/19,
+Stage 3B 16/16 e integração 82/82, totalizando 142/142 em `test:all`.
+`db:validate`, `db:generate`, typecheck, lint, build e `git diff --check`
+também passaram. O build precisou de rede apenas para obter a fonte Manrope.
+O smoke manual de navegador não foi executado neste ambiente.
+
+### Server Page, DTO, Client e refresh
+
+As quatro páginas rurais adotam o mesmo desenho:
+
+```text
+Server Page
+        ↓
+query server-only + requireActivePropertyContext() + READ_PROPERTY
+        ↓
+DTO serializável da Property ativa
+        ↓
+Client Component mantém somente formulário/pending/erro/seleção
+        ↓
+Server Action da 3A deriva Property, createdBy e WEB
+        ↓
+service + PostgreSQL
+        ↓
+router.refresh() ou retorno à lista mais recente relê o estado confirmado
+```
+
+Nenhum Client Component importa Prisma, escolhe `propertyId`, fornece
+`createdByUserId` ou calcula saldo como autoridade. `PropertyAccessContext`
+continua adaptando a apresentação por capability, enquanto Action e service
+revalidam a segurança no servidor.
+
+### Fluxos rurais ligados ao banco
+
+- Talhões lista `AreaDto` e cria `Area` por `createAreaAction`.
+- Estoque lista `StockProductDto`, cria produtos por
+  `createStockProductAction` e exibe o saldo real do banco.
+- Anotações lista `FarmRecordDto`, relaciona área/produto por CUID e cria
+  registros comuns por `createFarmRecordAction`.
+- Compra, entrada, pulverização, plantio ou manutenção com movimentação válida
+  usam exclusivamente `createFarmRecordWithStockMovementAction`; registro,
+  movimento, saldo e auditorias confirmam juntos ou sofrem rollback juntos.
+- `FarmRecord.quantity`/`quantityUnit` descrevem a grandeza do registro;
+  `StockMovement.amount` vem de um campo próprio e pode ter valor diferente. A
+  unidade exibida para o movimento vem do produto selecionado.
+- Após criar numa URL histórica com cursor, Anotações substitui a navegação por
+  `/registros`; na primeira página, apenas atualiza os dados server-side.
+- Decimais continuam texto até o boundary da 3A; labels PT-BR são mapeados para
+  enums persistentes por `src/services/rural/rural-ui.ts`, e os IDs DB-backed
+  permanecem strings.
+
+Banco vazio produz listas vazias e contagens zero. Os dados demo rurais do
+antigo Context não são restaurados como fallback.
+
+### Context e legado local
+
+`AgroAppContext` agora guarda somente `modoUso`, `setModoUso`, `isModoCompleto`
+e o estado necessário para carregar a preferência. Apenas
+`agrozap-settings` continua sendo lido e escrito.
+
+As chaves `agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e
+`agrozap-mvp-data:property-scope-migration:v1` permanecem intactas. A 3B não as
+lê como fonte, não grava novos arrays nelas, não as apaga, não as mescla e não
+as importa para o PostgreSQL. Detectar, visualizar, importar, exportar ou
+descartar esse legado pertence exclusivamente à Etapa 3C.
+
+### Dashboard e limites intencionais
+
+Contagens, atividades recentes e visão de estoque do Dashboard passam a ser
+tenant-scoped e DB-backed. O total de registros usa contagem própria no banco,
+sem confundir o tamanho de uma página com o histórico inteiro. Próximos
+vencimentos podem continuar demonstrativos porque ainda não existe domínio
+persistente de tarefas; o clima continua como integração independente. Esses
+blocos não são apresentados como fonte dos dados rurais persistidos.
+
+A Etapa 3A continua concluída, a 3B está validada tecnicamente/em revisão
+humana e a 3C permanece pendente. Portanto, a Etapa 3 inteira ainda não está
+concluída.
+
 ## 07/08/2026 — Boundary rural server-side (Etapa 3A)
 
 ### Estado da entrega

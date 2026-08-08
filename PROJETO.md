@@ -51,6 +51,8 @@ As palavras abaixo são usadas em toda a documentação:
 - **ATUAL:** já funciona na interface usada pelo produtor.
 - **EM CONSTRUÇÃO:** a fundação existe no código, mas o fluxo ainda não está
   completo para uso pelas telas.
+- **EM REVISÃO:** a implementação existe, mas a validação final ainda precisa
+  confirmar a entrega.
 - **PLANEJADO:** é uma direção futura e ainda não foi implementada.
 
 ### ATUAL — interface MVP
@@ -63,19 +65,25 @@ Hoje o AgroZap possui:
 - cadastro e acompanhamento de produtos do estoque;
 - Modo Simples e Modo Completo;
 - clima consultado por uma rota interna;
-- dados de demonstração para facilitar o desenvolvimento;
-- bloqueio de retirada quando o saldo local seria negativo;
+- tarefas de demonstração no painel enquanto esse domínio ainda não existe;
+- bloqueio persistente de retirada quando o saldo do banco seria negativo;
 - login real por telefone e senha;
 - seleção e troca de propriedade ativa;
 - equipe com papéis e capacidades revalidados no servidor.
 
-As telas ainda guardam áreas, anotações e produtos no `localStorage` do
-navegador por meio do `AgroAppContext`, em uma chave separada por Property.
-Isso preserva o MVP durante a migração, mas tem limitações importantes: os
-dados ficam naquele navegador, não são compartilhados entre usuários e ainda
-não formam um histórico de banco. Em um dispositivo compartilhado,
-`localStorage` também não é uma fronteira de confidencialidade entre contas do
-mesmo perfil de navegador.
+Na implementação da Etapa 3B, as telas de áreas, anotações, estoque e o resumo
+rural do dashboard leem dados da Property ativa no PostgreSQL. Os formulários
+chamam as Server Actions seguras da 3A e, depois de uma gravação bem-sucedida,
+releem o banco. Em Anotações, uma criação feita numa página histórica substitui
+a URL por `/registros`, voltando aos itens mais recentes. A validação técnica
+final aprovou 142/142 testes; a entrega permanece sem commit para revisão humana.
+
+O `AgroAppContext` deixou de guardar cadastros rurais. Ele mantém somente a
+preferência `modoUso`, salva em `agrozap-settings`. As chaves antigas
+`agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e o marcador de migração
+continuam fisicamente intactos, mas não são lidos, mesclados, apagados nem
+importados durante o uso normal. O tratamento explícito desse legado pertence
+à Etapa 3C.
 
 ### ATUAL — identidade, banco, domínio e auditoria
 
@@ -117,7 +125,7 @@ implementados nesta etapa.
 é um identificador global, enquanto nomes legíveis de propriedades podem se
 repetir.
 
-### EM CONSTRUÇÃO — boundary rural da Etapa 3A
+### ATUAL — boundary rural da Etapa 3A
 
 A Etapa 3 foi iniciada. A subetapa 3A concluiu e validou a camada server-side
 rural. Ela acrescenta:
@@ -141,16 +149,26 @@ rural. Ela acrescenta:
 - transação atômica para criar um registro junto com uma movimentação;
 - respostas de erro seguras, sem detalhes de Prisma ou PostgreSQL.
 
-Essa camada **ainda não é consumida pelas páginas rurais**. Portanto,
-cadastrar algo pela interface continua alterando o `localStorage`, não o
-PostgreSQL. Ter Server Actions e queries disponíveis não significa que a UI já
-tenha mudado de fonte.
+### ATUAL/EM REVISÃO HUMANA — interface rural da Etapa 3B
+
+As páginas rurais agora consomem essa camada. A leitura começa em uma Server
+Page, passa por uma query server-only tenant-scoped e entrega somente DTOs
+serializáveis ao Client Component. A escrita volta pela Server Action, que
+deriva Property, ator e origem no servidor, e termina com `router.refresh()` ou
+com retorno à primeira página do histórico para reler o PostgreSQL.
+
+Talhões cadastra `Area`; Estoque cadastra `StockProduct` e mostra o saldo
+persistido; Anotações cadastra `FarmRecord` e usa a operação atômica da 3A
+quando o mesmo registro também movimenta estoque. A quantidade estruturada do
+registro é independente da quantidade movimentada do produto. O dashboard usa
+contagens, registros recentes e produtos da Property ativa no PostgreSQL.
+Somente tarefas, cujo domínio persistente ainda não existe, e a integração
+independente de clima ficam fora desse conjunto rural persistente.
 
 ### PLANEJADO — experiência completa
 
 Estão planejados para etapas futuras:
 
-- Etapa 3B ligando as telas rurais ao boundary e ao PostgreSQL;
 - Etapa 3C tratando legado local, comportamento entre sessões e histórico
   final, sem importação silenciosa;
 - uso principal pelo WhatsApp, com identificação pelo telefone;
@@ -161,8 +179,9 @@ Estão planejados para etapas futuras:
 Uma `Organization` poderá futuramente agrupar várias Properties para empresa,
 família, cobrança ou administração central, mas foi deliberadamente adiada.
 PostgreSQL RLS não foi implementado. Também não existe integração com WhatsApp,
-chatbot, IA ou transcrição de áudio. A Etapa 3A está concluída; 3B e 3C
-continuam planejadas.
+chatbot, IA ou transcrição de áudio. A Etapa 3A está concluída, a implementação
+da 3B passou pela validação técnica e aguarda revisão humana, enquanto a 3C
+continua pendente. Isso não significa que a Etapa 3 inteira esteja concluída.
 
 ## Como os dados circulam hoje
 
@@ -178,23 +197,27 @@ Servidor deriva actorUserId, propertyId e capacidades
 Service usa Prisma e PostgreSQL
 ```
 
-Os cadastros rurais da interface ainda seguem a ponte local:
+Os cadastros rurais da interface seguem o boundary da 3A:
 
 ```text
-Pessoa preenche uma tela
+Server Page resolve a Property ativa
         ↓
-Página chama o AgroAppContext
+query server-only exige READ_PROPERTY
         ↓
-Context atualiza os dados em memória
+DTO serializável chega ao Client Component
         ↓
-Context salva no localStorage do navegador
+Pessoa envia o formulário para uma Server Action
         ↓
-React atualiza as telas
+Action deriva Property + ator + WEB e chama o service
+        ↓
+PostgreSQL confirma a operação
+        ↓
+router.refresh() faz a Server Page reler o banco
 ```
 
-O banco já atende autenticação, propriedade e equipe. O caminho rural local
-ainda não chama os services persistentes. Em paralelo, a Etapa 3A já oferece o
-caminho server-side que será consumido pela 3B:
+O PostgreSQL atende autenticação, propriedade, equipe e os dados rurais das
+quatro telas da 3B. O navegador mantém apenas estado temporário de formulário,
+pending, erro e seleção, além da preferência visual `modoUso`.
 
 ```text
 Server Action ou query rural
@@ -210,10 +233,10 @@ service rural + Prisma + PostgreSQL
 DTO serializável ou erro seguro
 ```
 
-## Como funcionará depois da integração da UI na Etapa 3B
+## Como funciona a integração da UI na Etapa 3B
 
 ```text
-Tela ou canal autorizado
+Server Page ou Client Component autorizado
         ↓
 Boundary server-side identifica propriedade e usuário
         ↓
@@ -225,7 +248,7 @@ Prisma executa uma transação
         ↓
 PostgreSQL salva dado, histórico e auditoria
         ↓
-DTO serializável chega ao painel
+DTO serializável chega ao painel e `router.refresh()` relê o estado confirmado
 ```
 
 As leituras paginadas usam cursor vinculado à Property e ao tipo de histórico.
@@ -260,12 +283,13 @@ O banco foi preparado para manter duas identidades:
 - `performedBy`: quem realizou a atividade no campo.
 
 Por exemplo, João pode informar que Pedro retirou um produto. Nesse caso, João
-registrou e Pedro executou. Nas actions WEB da 3A, `createdBy` é sempre o User
-da sessão revalidada. `performedBy` pode chegar somente como ID candidato e
-precisa ser um User ativo com membership ativa na mesma Property. Os
-formulários rurais ainda precisam ser integrados na 3B para usar essa separação
-na experiência real. Atores históricos continuam globais mesmo se a membership
-atual for removida.
+registrou e Pedro executou. Nas actions WEB, `createdBy` é sempre o User da
+sessão revalidada. `performedBy` pode chegar somente como ID candidato e precisa
+ser um User ativo com membership ativa na mesma Property. A interface atual da
+3B mantém `responsibleName` como texto histórico e não inventa
+`performedByUserId` a partir dele; enquanto não houver seleção segura de membro,
+esse vínculo permanece `null`. Atores históricos continuam globais mesmo se a
+membership atual for removida.
 
 ## Histórico das operações
 

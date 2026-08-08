@@ -143,6 +143,7 @@ async function main() {
       "tests/integration/stage2-1-multitenancy.integration.test.ts",
       "tests/integration/stage3a-domain.integration.test.ts",
       "tests/integration/stage3a-queries.integration.test.ts",
+      "tests/integration/stage3b-dashboard.integration.test.ts",
     ],
     domainTestEnvironment,
   );

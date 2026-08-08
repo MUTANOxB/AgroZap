@@ -3,11 +3,10 @@
 Este glossário explica palavras usadas no projeto de forma simples. Os exemplos
 foram baseados no código atual do AgroZap.
 
-Durante a migração, autenticação, propriedade ativa e equipe já usam o
-PostgreSQL. Áreas, anotações e produtos das telas ainda usam `localStorage`,
-separado por propriedade. A Etapa 3A já acrescentou o boundary server-side,
-queries e comandos rurais seguros, mas as telas só passarão a consumi-los na
-3B. Sempre observe qual desses fluxos o exemplo descreve.
+Autenticação, propriedade ativa, equipe e os dados rurais das telas usam
+PostgreSQL. A Etapa 3A criou o boundary server-side; a implementação da 3B
+passou a consumi-lo. `localStorage` continua ativo somente para `modoUso`. As
+chaves rurais anteriores estão preservadas, mas fora do fluxo normal até a 3C.
 
 ## React
 
@@ -87,7 +86,8 @@ Server Component é um componente executado no servidor. Ele pode consultar
 sessão e banco sem enviar esse código ou essas credenciais ao navegador.
 
 Os layouts autenticados do AgroZap são Server Components: revalidam usuário e
-propriedade antes de renderizar os componentes client.
+propriedade antes de renderizar os componentes client. Na 3B, as páginas rurais
+também consultam DTOs no servidor antes de passá-los ao Client Component.
 
 ## Server Action
 
@@ -97,7 +97,7 @@ expor o Prisma ao navegador.
 
 Login, logout, seleção de propriedade e mudanças da equipe usam Server Actions.
 A Etapa 3A também criou `rural-actions.ts` para operações rurais autorizadas;
-essas actions ainda não são chamadas pelas páginas rurais na 3A.
+as páginas da 3B chamam essas actions para áreas, produtos e FarmRecords.
 
 ## Proxy do Next.js
 
@@ -129,25 +129,26 @@ Quando o estado muda, o React atualiza a tela.
 `useEffect` executa uma ação depois que o React mostra a página ou quando algum
 valor muda.
 
-No `AgroAppContext.tsx`, ele é usado para:
+No `AgroAppContext.tsx`, ele é usado para carregar e salvar somente a
+preferência `modoUso` em `agrozap-settings`, evitando acessar recursos do
+navegador cedo demais. Dados rurais não passam por esse efeito.
 
-- carregar informações do `localStorage`;
-- salvar informações no `localStorage`;
-- evitar acessar recursos do navegador cedo demais.
+## router.refresh()
+
+`router.refresh()` pede ao Next.js uma nova renderização dos Server Components
+da rota atual sem transformar o navegador em banco. Na 3B, ele é chamado depois
+de uma Server Action rural bem-sucedida para que a Server Page execute outra
+query e receba DTOs atualizados do PostgreSQL. Outra aba também vê o dado ao
+atualizar a página; isso não é realtime nem WebSocket.
 
 ## Context
 
 Context é uma memória compartilhada entre várias partes do aplicativo.
 
-O `AgroAppContext.tsx` guarda os dados rurais locais:
-
-- áreas;
-- anotações;
-- produtos;
-- modo de uso;
-- funções para adicionar e atualizar dados.
-
-Assim, uma área cadastrada em Área cultivada pode ser usada na tela Anotações.
+O `AgroAppContext.tsx` guarda somente a preferência de modo de uso e seu estado
+de carregamento. Áreas, anotações e produtos vêm do PostgreSQL como DTOs. Assim,
+uma área cadastrada em Área cultivada pode ser relida e usada na tela Anotações
+sem existir um array rural compartilhado no Context.
 
 O `PropertyAccessContext.tsx` possui outra função: leva para os componentes a
 projeção de usuário, propriedade, papel e capacidades já resolvida no servidor.
@@ -157,24 +158,16 @@ Ele adapta a interface, mas não autoriza uma escrita.
 
 `localStorage` é um espaço de armazenamento do navegador.
 
-O AgroZap usa esse espaço para manter os cadastros e o modo de uso depois que a
-página é atualizada. Áreas, anotações e produtos ficam na chave
-`agrozap-mvp-data:<propertyId>`; `agrozap-settings` guarda a preferência visual.
+O AgroZap usa esse espaço ativamente somente para `agrozap-settings`, que guarda
+a preferência visual. Áreas, anotações, produtos e saldos são DB-backed.
 
-A antiga chave global `agrozap-mvp-data` é copiada, no máximo uma vez, para a
-primeira propriedade aberta depois da mudança. Um marcador impede copiar o
-mesmo legado para várias propriedades, e a chave antiga é preservada.
-
-Esses dados ficam somente naquele navegador e computador. O `localStorage` não
-é um banco de dados. Ele também pertence ao perfil inteiro do navegador: em um
-dispositivo compartilhado, outra conta pode enumerar chaves de Properties
-abertas anteriormente. A chave por `propertyId` evita mistura na navegação
-normal, mas não é uma fronteira de confidencialidade multi-tenant.
-
-A Etapa 3A não removeu, importou nem mudou silenciosamente
-`agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>`, o marcador de migração ou
-`agrozap-settings`. A 3B conectará as telas ao servidor; a 3C decidirá o
-tratamento do legado e do uso cross-session sem importação silenciosa.
+As chaves `agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e o marcador de
+migração continuam fisicamente no perfil do navegador como legado. Na 3B elas
+não são lidas, copiadas, mescladas, gravadas, importadas ou apagadas pelo fluxo
+normal. O `localStorage` pertence ao perfil inteiro do navegador e não é uma
+fronteira de confidencialidade multi-tenant; por isso, qualquer detecção,
+visualização, importação, exportação ou descarte precisa de uma estratégia
+explícita na 3C.
 
 ## Props
 
@@ -469,6 +462,10 @@ No AgroZap, os próximos vencimentos da tela Início ainda usam dados mockados
 de `src/data/dashboardMock.ts`. O clima deixou de ser mockado e agora vem da
 Open-Meteo.
 
+Contagens, atividades recentes, produtos e alertas rurais do Dashboard não são
+mockados na 3B: vêm do PostgreSQL e da Property ativa. Banco vazio mostra zeros
+e estados vazios honestos.
+
 Isso permite construir e testar a interface agora. No futuro, esses dados
 podem ser substituídos por informações vindas de uma API ou banco de dados.
 
@@ -640,28 +637,26 @@ Um fluxo comum do AgroZap é:
 Usuário digita
 → onChange atualiza o useState
 → onSubmit envia o formulário
-→ Context atualiza um array
-→ map transforma os itens em cards
-→ React atualiza a tela
-→ useEffect salva os dados no localStorage
+→ Server Action revalida Property, capability e input
+→ service grava no PostgreSQL
+→ router.refresh() solicita novamente a Server Page
+→ query devolve DTOs atualizados
+→ React mostra os cards
 ```
 
-Esse resumo continua correto para os cadastros rurais atuais. Login, seleção de
-propriedade e equipe já seguem um fluxo do servidor explicado abaixo. A Etapa 3
-ligará também áreas, anotações e produtos ao banco.
+Esse é o fluxo dos cadastros rurais da 3B. Estado React continua temporário para
+campos, pending, erro e seleção; ele não é a autoridade persistente.
 
 ## Banco de dados
 
 Banco de dados é um sistema preparado para guardar e consultar informações de
 forma organizada e durável.
 
-No AgroZap, o banco já guarda propriedades, usuários, membros e auditorias de
-equipe. O schema e os services também representam áreas, produtos,
-movimentações e anotações, mas as telas rurais ainda não gravam esses cadastros
-no PostgreSQL. Diferente do `localStorage`, o banco pode ser compartilhado com
-segurança por diferentes usuários autorizados.
-
-Ter o schema criado não significa que as telas já estejam usando o banco.
+No AgroZap, o banco guarda propriedades, usuários, membros, auditorias, áreas,
+produtos, movimentações e anotações. Na 3B, as telas rurais consultam e gravam
+esses cadastros pelo boundary seguro. Diferente do legado em `localStorage`, o
+banco pode ser compartilhado por diferentes usuários autorizados e relido após
+refresh ou nova sessão.
 
 ## PostgreSQL
 
@@ -1062,8 +1057,9 @@ Propriedade ativa é o escopo rural selecionado para a navegação atual. A
 seleção começa no cookie, mas só vira contexto depois que o servidor confirma o
 vínculo do usuário e que usuário e propriedade continuam ativos.
 
-Trocar a propriedade muda o contexto autenticado e também a chave de
-`localStorage` usada pelos cadastros rurais temporários.
+Trocar a propriedade muda o contexto autenticado e faz as Server Pages
+consultarem outro escopo tenant no PostgreSQL. Nenhuma chave rural local é
+selecionada como fonte.
 
 ## PropertyMember
 
@@ -1186,11 +1182,11 @@ executou a atividade.
 Exemplo: João registra “Pedro aplicou o produto”. João é `createdBy`; Pedro é
 `performedBy`.
 
-O login já identifica quem executa as novas actions do servidor. Áreas,
-anotações e estoque das telas ainda pertencem ao fluxo local. No boundary da
-3A, `createdBy` já vem obrigatoriamente da sessão revalidada;
+O login identifica quem executa as actions do servidor. No boundary rural,
+`createdBy` vem obrigatoriamente da sessão revalidada;
 `performedByUserId` é apenas candidato e precisa possuir membership ativa na
-mesma Property. A UI usará isso na 3B.
+mesma Property. A UI da 3B mantém `responsibleName` como texto histórico e não
+inventa um vínculo de usuário a partir do nome digitado.
 
 ## RecordSource
 
@@ -1212,14 +1208,17 @@ chama os services.
 
 O AgroZap possui `/api/clima`, handlers do Auth.js, Server Actions para login,
 logout, propriedade e equipe e, desde a 3A, um boundary rural com actions e
-queries. As páginas de áreas, produtos e anotações ainda não chamam essa camada;
-essa integração pertence à 3B.
+queries. As páginas de áreas, produtos e anotações chamam essa camada na 3B.
 
-O fluxo já usado pela equipe e planejado para os cadastros rurais é:
+O fluxo usado pelos cadastros rurais é:
 
 ```text
-Tela na 3B → boundary da 3A → Service → Prisma → PostgreSQL → DTO
+Server Page → query → DTO → Client → Action da 3A → PostgreSQL → nova leitura
 ```
+
+Normalmente a nova leitura usa `router.refresh()`. Se uma anotação for criada
+numa página histórica com cursor, a UI volta a `/registros` para mostrar o item
+mais recente.
 
 ## Server boundary
 
@@ -1319,23 +1318,26 @@ Esse conceito é **PLANEJADO**. A entidade não foi criada nesta etapa porque o
 fluxo de validade e confirmação ainda precisa ser definido. A autenticação web
 já existe, mas não define sozinha esses estados.
 
-## Resumo dos quatro fluxos/estados
+## Resumo dos fluxos e estados
 
 ```text
 ATUAL — autenticação, propriedade e equipe
 Tela/layout/action → Auth e autorização → Service → Prisma → PostgreSQL
 
-ATUAL — cadastros rurais
-Tela → Context → localStorage por Property
+ATUAL — leitura rural
+Server Page → query tenant-scoped → PostgreSQL → DTO → Client
 
-ATUAL — boundary rural da 3A, ainda sem consumidor nas páginas
-Server Action/query → contexto + capability → Service → Prisma → DTO
+ATUAL — escrita rural
+Client → Action da 3A → contexto + capability → Service → PostgreSQL
 
-PLANEJADO — integração da 3B
-Tela rural → boundary da 3A → PostgreSQL compartilhado
+ATUAL — preferência local
+AgroAppContext → modoUso → agrozap-settings
+
+PRESERVADO PARA 3C — legado rural
+agrozap-mvp-data* permanece intacto e fora do fluxo normal
 ```
 
-O primeiro já usa identidade e banco reais. O segundo mantém o MVP rural
-funcionando de forma local e isolada por propriedade. O terceiro já existe no
-servidor e reutiliza a autorização da Etapa 2. O quarto conectará as páginas e
-tornará os cadastros compartilhados entre sessões. A 3C tratará o legado.
+Os dois primeiros fluxos server-side e o fluxo rural reutilizam a autorização
+da Etapa 2 e o boundary da 3A. O Context restante não guarda dados rurais. A 3B
+está implementada/em revisão; a 3C tratará o legado, e a Etapa 3 inteira ainda
+não está concluída.

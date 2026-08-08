@@ -17,7 +17,7 @@ existirem identidade, permissões, validações e histórico confiável.
 
 **Status: parcial**
 
-Já existe uma aplicação web responsiva com:
+A base visual nasceu como uma aplicação web responsiva com:
 
 - painel Início;
 - áreas cultivadas;
@@ -25,12 +25,12 @@ Já existe uma aplicação web responsiva com:
 - estoque;
 - Modo Simples e Modo Completo;
 - dados de demonstração;
-- persistência rural no `localStorage`, agora isolada por propriedade.
+- persistência rural originalmente feita no `localStorage` por propriedade.
 
-O MVP é funcional, mas áreas, anotações e produtos ainda ficam em um único
-navegador, mesmo separados pela propriedade ativa. Algumas
-partes do painel também usam dados de demonstração. Por isso, a etapa não é
-considerada uma versão multiusuário concluída.
+Essa limitação de fonte foi substituída pela integração DB-backed da Etapa 3B.
+O visual do MVP continua sendo a base da interface, mas áreas, anotações,
+produtos e saldos já não dependem do navegador. Tarefas ainda podem usar dados
+de demonstração enquanto não possuem domínio persistente próprio.
 
 ## ETAPA 1 — Banco + domínio + auditoria
 
@@ -259,7 +259,7 @@ unitários. `db:validate`, `db:generate`, typecheck, lint e build também passar
 
 ## ETAPA 3 — Boundary rural, integração da UI e transição do legado
 
-**Status: iniciada — Etapa 3A concluída**
+**Status: iniciada — Etapa 3A concluída; 3B validada/em revisão humana; 3C pendente**
 
 ### ETAPA 3A — Boundary server-side, queries e comandos seguros
 
@@ -300,18 +300,37 @@ passaram.
 
 ### ETAPA 3B — Conectar a interface rural
 
-**Status: planejada**
+**Status: validação técnica concluída; aguardando revisão humana**
 
-Objetivo:
+Implementado e em revisão:
 
 - adaptar as páginas de áreas, produtos, anotações, estoque e dashboard aos
   DTOs e actions da 3A;
 - fazer o saldo visível vir do PostgreSQL;
-- consumir paginação sem perder o histórico;
+- mostrar 50 registros por página e permitir navegar pelo histórico adicional
+  com cursor tenant-scoped, sem chamar a página carregada de total;
 - manter o Modo Simples/Completo como preferência local quando fizer sentido;
-- provar que sessões diferentes da mesma Property veem o mesmo dado.
+- provar que sessões diferentes da mesma Property veem o mesmo dado;
+- separar Server Pages de Client Components: a página consulta DTOs no
+  servidor, o client chama a Action e relê o banco; em página histórica de
+  Anotações, a criação retorna a `/registros` para mostrar o item mais recente;
+- usar a operação combinada atômica para registros que também fazem IN/OUT;
+- manter a quantidade do FarmRecord independente da quantidade IN/OUT do
+  produto, com campos próprios até o boundary da 3A;
+- retirar áreas, produtos, saldos e registros do `AgroAppContext`, preservando
+  somente `modoUso` em `agrozap-settings`;
+- manter o legado rural local intacto, sem leitura, importação, mescla ou
+  exclusão automática;
+- trocar contagens, atividades recentes e visão de estoque do Dashboard por
+  dados tenant-scoped do PostgreSQL;
+- manter mocks somente onde ainda não existe domínio persistente, como tarefas,
+  além da integração independente de clima.
 
-Até a 3B, a UI rural continua usando o `AgroAppContext` e o `localStorage`.
+A revisão adversarial e a bateria técnica aprovaram `test:stage1.1` 8/8,
+`test:stage2` 17/17, `test:stage3a` 19/19, `test:stage3b` 16/16 e integração
+82/82, totalizando 142/142 em `test:all`. `db:validate`, `db:generate`,
+typecheck, lint e build também passaram. O smoke manual de navegador não foi
+executado neste ambiente e a entrega segue sem commit para revisão humana.
 
 ### ETAPA 3C — Legado, cross-session e histórico final
 
@@ -327,7 +346,9 @@ Objetivo:
   locais.
 
 As chaves `agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e o marcador de
-migração permanecem intactos na 3A.
+migração permanecem intactos depois da 3B. O fluxo normal não os lê, não os
+importa e não os apaga. Detectar, visualizar, importar, exportar ou descartar
+esse legado continua sendo responsabilidade explícita da 3C.
 
 ## ETAPA 4 — WhatsApp por texto e identificação por telefone
 

@@ -9,8 +9,8 @@ type UpcomingTasksProps = {
 export function UpcomingTasks({ tasks }: UpcomingTasksProps) {
   return (
     <DashboardPanel
-      title="Próximos vencimentos"
-      subtitle="Compromissos que pedem atenção"
+      title="Tarefas de demonstração"
+      subtitle="Exemplos — este bloco ainda não é persistido"
       icon="calendar"
     >
       <div className="divide-y divide-slate-100">

@@ -1,29 +1,24 @@
 import Link from "next/link";
-import type { Annotation } from "@/context/AgroAppContext";
 import type { UpcomingTask } from "@/data/dashboardMock";
 import { useClima } from "@/hooks/useClima";
 import { DashboardIcon } from "./DashboardIcon";
+import type { RecentActivityItem } from "./RecentActivities";
 
 type SimpleDashboardDetailsProps = {
-  annotations: Annotation[];
+  activities: RecentActivityItem[];
   tasks: UpcomingTask[];
 };
-
-function formatDate(date: string) {
-  const [year, month, day] = date.split("-");
-  return `${day}/${month}/${year}`;
-}
 
 /*
  * Estes cards mantêm informações úteis no Modo Simples sem trazer as listas
  * longas do dashboard completo. Anotações e vencimentos são limitados aqui.
  */
 export function SimpleDashboardDetails({
-  annotations,
+  activities,
   tasks,
 }: SimpleDashboardDetailsProps) {
   const { clima, isLoading, error } = useClima();
-  const recentAnnotations = annotations.slice(0, 3);
+  const recentActivities = activities.slice(0, 3);
   const nextTasks = tasks.slice(0, 3);
 
   return (
@@ -92,22 +87,21 @@ export function SimpleDashboardDetails({
         </header>
 
         <div className="mt-4 flex-1 divide-y divide-slate-100">
-          {recentAnnotations.length > 0 ? (
-            recentAnnotations.map((annotation) => (
-              <div key={annotation.id} className="py-3 first:pt-0">
+          {recentActivities.length > 0 ? (
+            recentActivities.map((activity) => (
+              <div key={activity.id} className="py-3 first:pt-0">
                 <p className="truncate text-sm font-semibold text-slate-800">
-                  {annotation.type}
-                  {annotation.location ? ` — ${annotation.location}` : ""}
+                  {activity.title}
                 </p>
                 <p className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-400">
-                  <span className="truncate">{annotation.description}</span>
-                  <time className="shrink-0">{formatDate(annotation.date)}</time>
+                  <span className="truncate">{activity.meta}</span>
+                  <time className="shrink-0">{activity.time}</time>
                 </p>
               </div>
             ))
           ) : (
             <p className="py-4 text-sm text-slate-500">
-              Nenhuma anotação cadastrada.
+              Nenhuma anotação registrada.
             </p>
           )}
         </div>
@@ -123,9 +117,9 @@ export function SimpleDashboardDetails({
       <article className="ag-card ag-card-interactive flex flex-col p-5">
         <header className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-bold text-slate-900">Próximos vencimentos</h2>
+            <h2 className="font-bold text-slate-900">Tarefas de demonstração</h2>
             <p className="mt-0.5 text-xs text-slate-400">
-              Compromissos que pedem atenção
+              Exemplos — este bloco ainda não é persistido
             </p>
           </div>
           <span className="rounded-xl border border-emerald-200/60 bg-emerald-50 p-2.5 text-emerald-700 shadow-sm">
@@ -162,12 +156,9 @@ export function SimpleDashboardDetails({
           ))}
         </div>
 
-        <button
-          type="button"
-          className="ag-button-secondary mt-3 min-h-10 px-4 text-sm font-semibold"
-        >
-          Ver detalhes
-        </button>
+        <p className="mt-3 text-xs leading-5 text-slate-400">
+          Tarefas reais serão conectadas em uma etapa futura.
+        </p>
       </article>
     </section>
   );

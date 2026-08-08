@@ -4,13 +4,13 @@ Este documento é um guia simples para estudar o projeto. Você não precisa
 entender tudo de uma vez. A ideia é saber onde cada parte está e acompanhar o
 caminho dos dados aos poucos.
 
-> **Importante:** a Etapa 2 colocou autenticação, propriedade ativa e equipe no
-> PostgreSQL. Áreas, anotações e produtos das telas continuam temporariamente
-> no Context e no `localStorage`, agora separados por propriedade. Portanto,
-> a Etapa 3A acrescentou um boundary rural no servidor sem ainda trocar a
-> fonte da UI. Existem quatro caminhos/estados que não devem ser confundidos.
+> **Importante:** autenticação, propriedade ativa, equipe e os dados rurais das
+> quatro telas da 3B usam PostgreSQL. A 3A criou o boundary seguro; a 3B ligou a
+> interface a ele. O `AgroAppContext` guarda somente a preferência `modoUso` em
+> `agrozap-settings`. As chaves rurais antigas permanecem intactas, mas não são
+> fonte, fallback ou alvo de escrita no fluxo normal.
 
-### Visão rápida dos quatro caminhos
+### Visão rápida dos caminhos e estados
 
 **ATUAL — identidade, propriedade e equipe no servidor:**
 
@@ -24,47 +24,58 @@ Prisma
 PostgreSQL
 ```
 
-**ATUAL — cadastros rurais usados pela interface:**
+**ATUAL — leitura rural usada pela interface:**
 
 ```text
-Página client
+Server Page
     ↓
-PropertyAccessContext (UX) + AgroAppContext
+requireActivePropertyContext + READ_PROPERTY
     ↓
-agrozap-mvp-data:<propertyId> no localStorage
+query tenant-scoped + Prisma + PostgreSQL
     ↓
-React atualiza as páginas
+DTO serializável
+    ↓
+Client Component
 ```
 
-**ATUAL — boundary rural disponível no servidor desde a 3A:**
+**ATUAL — escrita rural usada pela interface:**
 
 ```text
-Server Action ou query server-only
+Client Component envia dados funcionais
     ↓
-requireActivePropertyContext + capability + input normalizado
+Server Action da 3A deriva Property, ator e WEB
     ↓
-Service rural com regra de negócio
+capability + input normalizado + service rural
     ↓
-Prisma
+Prisma + PostgreSQL
     ↓
-PostgreSQL
+RuralActionResult seguro
     ↓
-DTO serializável ou erro seguro
+router.refresh() relê a Server Page
 ```
 
-**PLANEJADO — integração das páginas na Etapa 3B:**
+**ATUAL — preferência local de interface:**
 
 ```text
-Página rural
+AppShell + AgroAppContext
     ↓
-boundary da 3A
+modoUso
     ↓
-PostgreSQL compartilhado entre sessões
+agrozap-settings no localStorage
 ```
 
-O primeiro fluxo atende login, seleção e equipe. O segundo mantém o MVP rural
-no navegador. O terceiro é código server-side real da 3A, mas ainda não é
-chamado pelas páginas rurais. O quarto descreve a 3B.
+**PRESERVADO PARA A 3C — legado rural, fora do fluxo normal:**
+
+```text
+agrozap-mvp-data e agrozap-mvp-data:<propertyId>
+    ↓
+permanecem intactos, sem leitura, escrita, mescla, importação ou exclusão
+```
+
+O primeiro fluxo atende identidade e equipe. O segundo e o terceiro formam a
+integração rural DB-backed da 3B. O quarto mantém apenas uma preferência visual
+local. O legado separado não é um quinto caminho de dados: ele está em
+quarentena até uma decisão explícita da 3C.
 
 ## 1. Estrutura geral do projeto
 
@@ -86,13 +97,13 @@ AgroZap/
 ├── src/
 │   ├── app/              Rotas públicas, autenticadas e por propriedade
 │   ├── components/       Partes visuais reutilizáveis
-│   ├── context/          Projeção de acesso e ponte rural local
-│   ├── data/             Dados de demonstração da interface
+│   ├── context/          Projeção de acesso e preferência local de UI
+│   ├── data/             Dados demonstrativos de domínios ainda ausentes
 │   ├── generated/prisma/ Prisma Client gerado automaticamente
 │   ├── hooks/            Lógicas reutilizáveis dos componentes
 │   ├── lib/              Conexão Prisma e funções auxiliares
 │   ├── services/         Auth, autorização, equipe, domínio e boundary rural
-│   ├── types/            Tipos temporários usados pelas telas
+│   ├── types/            Tipos legados e contratos auxiliares
 │   ├── auth.config.ts    Configuração compartilhada do Auth.js
 │   ├── auth.ts           Credentials e callbacks da sessão
 │   └── proxy.ts          Checagem otimista das rotas protegidas
@@ -139,7 +150,7 @@ Outros arquivos importantes:
 - `src/app/api/auth/[...nextauth]/route.ts`: endpoints de sessão do Auth.js.
 - arquivos `actions.ts`: Server Actions de login, logout, seleção e equipe;
 - `src/app/(authenticated)/(property)/rural-actions.ts`: boundary WEB rural da
-  3A. As páginas ainda não o importam na 3A.
+  3A, consumido pelos Client Components da 3B.
 
 ### Onde fica a identidade visual
 
@@ -233,33 +244,18 @@ servidor já resolveu: usuário, propriedade, papel e capacidades. Seu método
 `can()` serve para adaptar botões e formulários. Ele não autoriza uma operação;
 qualquer escrita precisa revalidar tudo no servidor.
 
-O `AgroAppContext` funciona como uma memória compartilhada dos cadastros rurais.
-Ele permite que páginas diferentes usem os mesmos dados locais.
+O `AgroAppContext` não guarda mais cadastros rurais. Seu contrato fica limitado
+a:
 
-Por exemplo:
-
-- Área cultivada adiciona uma área.
-- Anotações consegue usar essa área como opção.
-- Estoque adiciona produtos.
-- Início consegue contar produtos, áreas e anotações.
-
-O contexto guarda:
-
-- `areas`: áreas cadastradas;
-- `anotacoes`: registros da propriedade;
-- `produtos`: produtos do estoque;
 - `modoUso`: modo `"simples"` ou `"completo"`;
-- funções para adicionar e atualizar dados;
-- `adicionarAnotacaoComMovimentacao`: valida e publica uma anotação junto com
-  sua mudança local de estoque;
-- `isLoaded`: informa quando os dados do navegador terminaram de carregar;
+- `setModoUso`: altera essa preferência;
+- `isLoaded`: informa quando a preferência local terminou de carregar;
 - `isModoCompleto`: forma curta de saber se o modo atual é completo.
 
-O hook `useAgroApp()` permite que uma página acesse tudo isso.
-
-O provider recebe `activePropertyId` do layout protegido. Áreas, anotações e
-produtos são lidos e salvos em `agrozap-mvp-data:<propertyId>`. A preferência
-visual continua em `agrozap-settings`.
+O hook `useAgroApp()` continua permitindo que `AppShell` e as telas adaptem a
+quantidade de campos. Somente `agrozap-settings` é lido e escrito. Áreas,
+produtos, saldos e registros chegam por props DB-backed e não atravessam esse
+Context.
 
 ## 5. Para que servem as telas
 
@@ -277,7 +273,8 @@ tela continuar útil sem ficar carregada.
 No Modo Completo, aparecem os painéis maiores de atividades, clima, estoque e
 tarefas, com mais informações visíveis ao mesmo tempo.
 
-Os números dos cards são calculados com os dados do contexto.
+Os números rurais dos cards vêm de uma summary query tenant-scoped. Atividades
+recentes usam `FarmRecord` reais e a visão de estoque usa `StockProduct` reais.
 
 O componente `src/components/dashboard/SimpleDashboardDetails.tsx` reúne os
 três cards compactos. Ele recebe dados por props, limita as listas e organiza:
@@ -287,8 +284,9 @@ três cards compactos. Ele recebe dados por props, limita as listas e organiza:
 - próximos vencimentos.
 
 O clima vem da rota interna `/api/clima`. Os vencimentos ainda usam dados de
-demonstração de `src/data/dashboardMock.ts`. As anotações vêm do
-`AgroAppContext`.
+demonstração de `src/data/dashboardMock.ts`, pois tarefas não possuem domínio
+persistente. As anotações vêm de DTOs consultados no PostgreSQL. Dados mockados
+não representam áreas, registros, produtos ou saldos da Property.
 
 ### Como o clima real funciona
 
@@ -340,6 +338,10 @@ Permite cadastrar e listar locais da propriedade.
 No Modo Simples, pede nome, tipo e tamanho. No Modo Completo, mostra também
 observação, cultura, safra, solo, irrigação e produtividade estimada.
 
+A Server Page entrega `AreaDto[]` ao formulário client. Tamanho e produtividade
+usam valor decimal e unidade separados; no sucesso de `createAreaAction`, a
+página relê o banco.
+
 ### Anotações
 
 Arquivo: `src/app/(authenticated)/(property)/registros/page.tsx`
@@ -352,10 +354,11 @@ mostra tipo, quantidade, responsável, valor e informações técnicas.
 Algumas anotações completas também podem alterar a quantidade de um produto no
 estoque.
 
-Quando o tipo exige estoque, a página valida primeiro se o produto existe e se
-a quantidade é numérica e maior que zero. Depois o Context calcula o próximo
-saldo e prepara a anotação e o produto antes de publicar os dois estados. Se
-alguma validação falhar, nenhuma das duas partes é salva.
+Áreas e produtos conhecidos são selecionados por ID string. Um registro comum
+usa `createFarmRecordAction`; quando também há entrada ou saída válida de
+estoque, a página usa somente `createFarmRecordWithStockMovementAction`. O
+service calcula o saldo e confirma FarmRecord, StockMovement e auditorias na
+mesma transação. Se alguma parte falhar, nenhuma é salva.
 
 ### Estoque
 
@@ -366,7 +369,9 @@ Permite cadastrar produtos e acompanhar suas quantidades.
 No Modo Simples, pede somente nome, quantidade e unidade. No Modo Completo,
 mostra categoria, estoque mínimo, fornecedor, validade e outros detalhes.
 
-Também calcula quais produtos estão abaixo do estoque mínimo.
+Uma Server Page entrega `StockProductDto[]`; o saldo exibido é o valor do banco.
+A comparação visual de estoque baixo usa `quantity <= minimumStock`, mas não
+persiste nenhum cálculo no React.
 
 ## 6. Quais arquivos estudar primeiro
 
@@ -419,15 +424,15 @@ useState atualiza formData
         ↓
 Usuário envia o formulário
         ↓
-handleSubmit monta o novo objeto
+handleSubmit monta somente o input público
         ↓
-Uma função do contexto adiciona o objeto à lista
+Server Action revalida contexto, capability e entrada
         ↓
-React renderiza novamente a página
+service grava no PostgreSQL
         ↓
-O novo item aparece na lista
+router.refresh() solicita novamente a Server Page
         ↓
-O contexto salva as listas no localStorage
+query retorna DTOs e o novo item aparece
 ```
 
 ### Estado do formulário
@@ -444,25 +449,23 @@ const [formData, setFormData] = useState(emptyForm);
 ### Envio
 
 Quando o usuário clica no botão, `handleSubmit` impede o recarregamento da
-página, prepara os dados e chama uma função como:
+página, prepara os dados funcionais e chama uma Action como:
 
 ```tsx
-adicionarArea(newLocation);
+const result = await createAreaAction(input);
 ```
 
 ### Lista
 
-O contexto atualiza a lista. Como o React percebe a mudança, a tela é
-renderizada novamente e o novo card aparece.
+No sucesso, `router.refresh()` pede uma nova renderização server-side. A query
+relê o banco e o novo DTO aparece no card. No erro, a mensagem segura do
+`RuralActionResult` é mostrada e o formulário permanece preenchido.
 
 ### Salvamento
 
-O contexto usa `useEffect` para salvar áreas, anotações e produtos no
-`localStorage`.
-
-`localStorage` é um espaço do navegador. Por isso, os dados continuam
-disponíveis depois de atualizar a página, mas ficam somente naquele navegador
-e computador.
+O PostgreSQL salva áreas, produtos, saldos e registros. `localStorage` guarda
+somente `modoUso` em `agrozap-settings`. As chaves rurais antigas permanecem
+intactas para 3C e não participam desse fluxo.
 
 ## 8. Modo Simples e Modo Completo
 
@@ -564,18 +567,17 @@ Na tela Início, a escolha funciona da mesma forma:
 
 - Abra `src/context/AgroAppContext.tsx`.
 - Localize `createContext`, `AgroAppProvider` e `useAgroApp`.
-- Veja as funções `adicionarArea`, `adicionarAnotacao` e
-  `adicionarProduto`.
-- Volte às páginas e procure onde essas funções são chamadas.
+- Veja como somente `modoUso` e seu estado de carregamento são compartilhados.
+- Volte às páginas e observe que dados rurais chegam por props, não pelo
+  Context.
 
 ### Dia 5 — Entender `localStorage`
 
 - No contexto, procure `localStorage.getItem`.
 - Depois procure `localStorage.setItem`.
-- Entenda que um trecho carrega e outro salva.
-- Veja por que o código espera `isLoaded` antes de salvar.
-- Observe que a chave rural inclui `activePropertyId` e que o legado global é
-  migrado no máximo uma vez.
+- Observe que ambos tratam somente `agrozap-settings`.
+- Veja por que o código espera `isLoaded` antes de salvar a preferência.
+- Confirme que as chaves rurais legadas não são lidas, gravadas ou apagadas.
 
 ### Dia 6 — Entender Modo Simples e Completo
 
@@ -725,8 +727,8 @@ se uma saída é permitida ou como criar a auditoria.
 ### Estoque
 
 - `src/services/estoque/errors.ts`: erros de domínio com códigos estáveis.
-- `src/services/estoque/local-stock.ts`: proteção temporária contra estoque
-  negativo no Context.
+- `src/services/estoque/local-stock.ts`: proteção legada mantida para regressão
+  e para a futura estratégia da 3C; não é autoridade das telas da 3B.
 - `src/services/estoque/product.service.ts`: cria produto, apelidos, saldo de
   abertura e auditoria.
 - `src/services/estoque/stock-movement.service.ts`: cria entradas, saídas,
@@ -838,16 +840,16 @@ correção acrescenta outro movimento ou log; ela não altera nem apaga o passad
 
 ## 14. Tipos do frontend e tipos do banco
 
-Os arquivos abaixo agora concentram os formatos temporários usados pelas telas:
+Os arquivos abaixo preservam formatos temporários do legado local:
 
 - `src/types/talhao.ts`;
 - `src/types/estoque.ts`;
 - `src/types/registro.ts`.
 
-O Context reexporta esses tipos por compatibilidade, evitando quebrar todos os
-imports de uma vez.
+Eles permanecem no repositório para a futura estratégia da 3C, mas as quatro
+telas DB-backed da 3B usam `AreaDto`, `StockProductDto` e `FarmRecordDto`.
 
-Os formatos ainda não são iguais aos modelos Prisma. Exemplos:
+Os formatos legados não são iguais aos contratos persistentes. Exemplos:
 
 | Frontend temporário | Banco |
 | --- | --- |
@@ -857,56 +859,36 @@ Os formatos ainda não são iguais aos modelos Prisma. Exemplos:
 | valor como `"R$ 85,00"` | `Decimal` |
 | responsável como texto | relações `createdBy` e `performedBy` |
 
-O boundary da 3A já valida e converte os formatos persistentes, mas as páginas
-legadas só passarão a chamá-lo na 3B. Não copie o tipo legado para o banco nem
-envie um objeto Prisma diretamente para um componente client.
+O boundary da 3A valida os inputs persistentes, e a 3B usa uma camada central
+para mapear labels PT-BR aos enums. IDs permanecem strings, decimais continuam
+texto até o boundary e modelos Prisma crus nunca chegam ao componente client.
 
-## 15. O papel temporário do AgroAppContext
+## 15. O papel atual do AgroAppContext
 
-O `AgroAppContext` ainda é a fonte das telas para:
+O `AgroAppContext` é somente um Context de preferência visual. Ele expõe
+`modoUso`, `setModoUso`, `isModoCompleto` e o estado necessário para carregar a
+configuração. `agrozap-settings` continua no `localStorage`.
 
-- áreas;
-- anotações;
-- produtos;
-- Modo Simples ou Completo.
+Ele não contém `areas`, `anotacoes`, `produtos`, mutadores rurais ou cálculo de
+saldo. Trocar de tela, atualizar ou abrir outra aba faz as páginas consultarem o
+PostgreSQL novamente; o Context não mantém uma cópia autoritativa.
 
-Ele salva os cadastros na chave `agrozap-mvp-data:<propertyId>` e a preferência
-visual em `agrozap-settings`. A antiga chave global `agrozap-mvp-data` é
-preservada e copiada, no máximo uma vez, para a primeira propriedade aberta
-após a mudança. O marcador
-`agrozap-mvp-data:property-scope-migration:v1` impede que o mesmo legado seja
-replicado em várias propriedades. A mudança local de saldo também chama
-`calculateLocalStockBalance`, que rejeita uma retirada sem saldo.
+As chaves `agrozap-mvp-data`, `agrozap-mvp-data:<propertyId>` e o antigo
+marcador de migração continuam fisicamente preservados. O código normal da 3B
+não os lê, não grava novos arrays, não copia o legado global, não mescla e não
+apaga. Essa quarentena evita perda e atribuição silenciosa; o tratamento
+explícito pertence à 3C.
 
-Desde a Etapa 1.1,
-`src/app/(authenticated)/(property)/registros/page.tsx` também usa
-`requireValidLocalStockProduct` e `parseRequiredLocalStockQuantity`. Quando a
-anotação exige movimento, `adicionarAnotacaoComMovimentacao` valida o próximo
-saldo antes de alterar as listas. Assim não existe anotação sem o estoque
-obrigatório, nem estoque alterado sem a anotação correspondente.
+## 16. Legado local, seed e banco são conjuntos diferentes
 
-Esse isolamento e essa proteção não transformam o `localStorage` em banco. As
-áreas, anotações e produtos da interface não criam movimento, auditoria ou
-transação PostgreSQL. Usuário, propriedade e equipe, por outro lado, já usam o
-banco pela arquitetura da Etapa 2. Além disso, todas as chaves da mesma origem
-ficam disponíveis ao mesmo perfil de navegador: separar a chave por Property
-evita mistura na navegação normal, mas não protege confidencialidade entre
-usuários de um dispositivo compartilhado.
+Os exemplos do seed são dados reais do ambiente PostgreSQL em que o seed foi
+executado. Já os arrays antigos do navegador são legado inativo: não aparecem
+automaticamente na interface e não são copiados para o banco.
 
-## 16. Dados locais, seed e banco são fontes diferentes
-
-Durante a transição existem conjuntos independentes de demonstração:
-
-- os exemplos do Context, usados separadamente por propriedade quando o
-  navegador ainda não possui dados naquela chave;
-- os exemplos do seed, inseridos no PostgreSQL quando `npm run db:seed` é
-  executado.
-
-Rodar o seed não altera os cadastros rurais do navegador. Cadastrar área,
-anotação ou produto pela tela não altera o seed nem o PostgreSQL. Login,
-propriedade ativa e equipe já consultam o banco, e a 3A acrescentou o boundary
-rural ainda não consumido pelas telas. A Etapa 3C decidirá como importar ou
-descartar dados locais sem duplicação.
+Rodar o seed não altera o legado do navegador. Cadastrar área, anotação ou
+produto pela tela grava no PostgreSQL da Property ativa, não no seed como
+arquivo nem nas chaves locais. A Etapa 3C decidirá como detectar, visualizar,
+importar, exportar ou descartar o legado sem duplicação.
 
 ## 17. Comandos importantes
 
@@ -915,6 +897,7 @@ npm run dev          # executa a interface com hot reload
 npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
 npm run test:stage2  # testa autenticação e política de papéis
 npm run test:stage3a # testa guard, parsers, DTOs, inputs e erros do boundary
+npm run test:stage3b # testa mappings, adapters, preferência e arquitetura da UI
 npm run test:integration # recria agrozap_test e testa o PostgreSQL real
 npm run test:all     # executa testes unitários e de integração
 npm run typecheck    # verifica os tipos TypeScript
@@ -940,7 +923,7 @@ documentação.
 Uma ordem recomendada é:
 
 1. leia `PROJETO.md` para entender objetivo e status;
-2. compare os três fluxos no começo deste mapa;
+2. compare os caminhos e estados no começo deste mapa;
 3. leia `src/auth.config.ts`, `src/auth.ts` e
    `src/services/auth/current-user.ts`;
 4. siga `src/app/(authenticated)/(property)/layout.tsx` até
@@ -949,8 +932,8 @@ Uma ordem recomendada é:
    `property-role-policy.ts`, lembrando que somente o servidor autoriza;
 6. leia `src/services/equipe/team.service.ts` e depois as actions de `/equipe`;
 7. abra `prisma/schema.prisma`, localize `User`, `Property` e `PropertyMember`;
-8. compare `src/services/estoque/local-stock.ts`, usado pelo MVP, com
-   `src/services/estoque/stock-movement.service.ts`, já preparado para o banco;
+8. compare `src/services/estoque/local-stock.ts`, preservado como legado, com
+   `src/services/estoque/stock-movement.service.ts`, usado pelo fluxo DB-backed;
 9. consulte `docs/DECISOES.md` e `docs/HISTORICO_MUDANCAS.md` para separar o que
    está concluído do que pertence à Etapa 3.
 
@@ -1345,21 +1328,20 @@ depois de projetar contexto de conexão/sessão, transações e pooling com Pris
 A Etapa 2.1 também não criou API rural, WhatsApp, IA, billing nem qualquer parte
 da Etapa 3.
 
-### Services rurais e ponte local
+### Services rurais e evolução da ponte local
 
 `area.service.ts`, `product.service.ts`, `farm-record.service.ts` e
 `stock-movement.service.ts` já filtravam IDs relacionados pela Property quando
 a Etapa 2.1 terminou, mas ainda não estavam expostos. A Etapa 3A passou a
 expô-los por um boundary que deriva ator e Property no servidor e exige a
-capability correspondente. As telas continuam sem usar essas actions até a
-3B; `propertyId`, papel ou ator nulo nunca viram autoridade do browser.
+capability correspondente. A Etapa 3B passou a usar essas actions;
+`propertyId`, papel ou ator nulo nunca viram autoridade do browser.
 
-O `AgroAppContext` continua usando
-`agrozap-mvp-data:<propertyId>`. Essa chave impede que a navegação normal misture
-duas Properties, mas `localStorage` pertence ao perfil inteiro do navegador.
-Em dispositivo compartilhado, outro usuário pode enumerar dados locais de uma
-Property aberta anteriormente. Esse risco residual só termina com uma migração
-segura do armazenamento; ela não faz parte da Etapa 2.1.
+Na Etapa 2, o `AgroAppContext` usava
+`agrozap-mvp-data:<propertyId>` como ponte temporária. Na 3B, esse fluxo foi
+desativado e o Context ficou restrito a `modoUso`. As chaves permanecem
+fisicamente no perfil do navegador, sem leitura ou escrita normal; seu risco e
+tratamento explícito pertencem à 3C.
 
 ### Testes validados
 
@@ -1497,3 +1479,79 @@ A 3B conectará essas páginas ao boundary. A 3C tratará legado, cross-session 
 histórico final, sem importação silenciosa. A validação final da 3A aprovou
 19/19 testes unitários próprios, 78/78 de integração e 122/122 em `test:all`,
 além de schema, geração do client, typecheck, lint e build.
+
+## 25. Mapa da Etapa 3B
+
+### Leitura Server → DTO → Client
+
+As páginas de Talhões, Estoque, Anotações e Dashboard são Server Pages. Elas
+chamam wrappers públicos sem `propertyId` fornecida pelo navegador. Os wrappers
+derivam a Property ativa, exigem `READ_PROPERTY`, filtram a query e retornam
+DTOs serializáveis.
+
+Cada rota mantém um `page.tsx` server e entrega props para seu componente
+client: `talhoes-client.tsx`, `estoque-client.tsx`, `registros-client.tsx` e
+`dashboard-client.tsx`. O arquivo `src/services/rural/rural-ui.ts` concentra
+mapeamentos PT-BR, formatação decimal, permissões de apresentação e adapters de
+formulário testáveis.
+
+```text
+page.tsx
+    ↓
+listCurrentProperty... / dashboard summary
+    ↓
+AreaDto | StockProductDto | FarmRecordDto | summary DTO
+    ↓
+componente client por props
+```
+
+Banco vazio devolve arrays vazios e contagens zero. Não existe fallback para os
+dados demo que antes viviam no Context.
+
+### Escrita Client → Action → nova leitura
+
+O componente client mantém campos, seleção, pending e mensagem segura. Ao
+enviar, ele chama `createAreaAction`, `createStockProductAction`,
+`createFarmRecordAction` ou a Action combinada. No sucesso, limpa o formulário
+e usa `router.refresh()`. Se Anotações estiver numa página histórica com cursor,
+usa `router.replace("/registros")` para voltar aos registros mais recentes. No
+erro, preserva os campos e a URL.
+
+O navegador não envia `propertyId`, `createdByUserId`, papel, capability ou
+origem como autoridade. A Action reutiliza o contexto e as guardas da 3A.
+
+### Talhões, estoque e anotações estruturados
+
+- tamanho e produtividade de área usam decimal + unidade;
+- quantidade, estoque mínimo e valor unitário de produto continuam como texto
+  decimal até o boundary;
+- área e produto de uma anotação são selecionados por CUID string;
+- quantidade e valor do FarmRecord usam campos estruturados;
+- `stockMovementAmount` é separado de `FarmRecord.quantity`: o primeiro alimenta
+  somente `StockMovement.amount`, e sua unidade visual vem do produto;
+- o histórico mostra 50 registros por página e oferece navegação por cursor
+  para registros anteriores;
+- `responsibleName` é histórico e não vira usuário autenticado;
+- labels PT-BR passam por um mapeamento central para os enums persistentes.
+
+Quando um registro também movimenta estoque, somente
+`createFarmRecordWithStockMovementAction` é chamado. A área e o produto do
+movimento são derivados do FarmRecord, e saldo insuficiente não deixa registro
+órfão.
+
+### Dashboard e fontes não rurais
+
+Resumo, total de registros, atividades recentes e visão de estoque usam queries
+tenant-scoped no PostgreSQL. O total não é calculado pelo tamanho da primeira
+página. Tarefas continuam mockadas enquanto não possuem tabela, mas são
+rotuladas explicitamente como demonstração; clima continua sendo obtido por
+sua integração própria. Nenhum desses blocos substitui ou mascara os dados
+rurais reais.
+
+### Estado da etapa
+
+A 3B está validada tecnicamente e aguarda revisão humana. A matriz aprovou
+8/8 em Stage 1.1, 17/17 em Stage 2, 19/19 em Stage 3A, 16/16 em Stage 3B e
+82/82 na integração, totalizando 142/142 em `test:all`; schema, geração,
+typecheck, lint e build também passaram. A 3C continua pendente para o legado,
+portanto a Etapa 3 inteira não está concluída.

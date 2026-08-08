@@ -25,17 +25,13 @@ export function DashboardPanel({ title, subtitle, icon, children, href }: Dashbo
           </h2>
           {subtitle && <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>}
         </div>
-        {href ? (
+        {href && (
           <Link
             href={href}
             className="text-sm font-semibold text-emerald-700 transition hover:text-emerald-900"
           >
             Ver detalhes
           </Link>
-        ) : (
-          <button className="text-sm font-semibold text-emerald-700 transition hover:text-emerald-900">
-            Ver detalhes
-          </button>
         )}
       </header>
       {children}

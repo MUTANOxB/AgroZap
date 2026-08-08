@@ -19,10 +19,25 @@ import {
 
 export const DEFAULT_RURAL_PAGE_LIMIT = 25;
 export const MAX_RURAL_PAGE_LIMIT = 100;
+export const DASHBOARD_RECENT_FARM_RECORD_LIMIT = 5;
+export const DASHBOARD_STOCK_OVERVIEW_LIMIT = 4;
 
 export type RuralPageRequest = {
   cursor?: string | null;
   limit?: number;
+};
+
+export type RuralDashboardCountsDto = {
+  activeAreas: number;
+  farmRecords: number;
+  activeProducts: number;
+  lowStockProducts: number;
+};
+
+export type RuralDashboardSummaryDto = {
+  counts: RuralDashboardCountsDto;
+  recentFarmRecords: FarmRecordDto[];
+  stockOverviewProducts: StockProductDto[];
 };
 
 export type RuralQueryErrorCode =
@@ -414,6 +429,134 @@ async function listAuditLogsByPropertyId(
   };
 }
 
+/** @internal Entrada testável; fronteiras WEB devem usar o wrapper sem ID. */
+async function getDashboardSummaryByPropertyId(
+  propertyId: string,
+): Promise<RuralDashboardSummaryDto> {
+  requirePropertyId(propertyId);
+
+  const [
+    activeAreas,
+    farmRecords,
+    activeProducts,
+    lowStockRows,
+    recentFarmRecords,
+    stockOverviewProductIds,
+  ] = await Promise.all([
+    db.area.count({
+      where: { propertyId, archivedAt: null },
+    }),
+    db.farmRecord.count({
+      where: { propertyId },
+    }),
+    db.stockProduct.count({
+      where: { propertyId, archivedAt: null },
+    }),
+    db.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) AS "count"
+        FROM "StockProduct"
+       WHERE "propertyId" = ${propertyId}
+         AND "archivedAt" IS NULL
+         AND "minimumStock" IS NOT NULL
+         AND "quantity" <= "minimumStock"
+    `,
+    db.farmRecord.findMany({
+      where: { propertyId },
+      select: {
+        id: true,
+        areaId: true,
+        productId: true,
+        createdByUserId: true,
+        performedByUserId: true,
+        type: true,
+        description: true,
+        locationDescription: true,
+        occurredAt: true,
+        quantity: true,
+        quantityUnit: true,
+        value: true,
+        responsibleName: true,
+        productNameSnapshot: true,
+        areaNameSnapshot: true,
+        appliedDose: true,
+        doseUnit: true,
+        harvest: true,
+        supplier: true,
+        productBatch: true,
+        technicalNote: true,
+        source: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: DASHBOARD_RECENT_FARM_RECORD_LIMIT,
+    }),
+    db.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+        FROM "StockProduct"
+       WHERE "propertyId" = ${propertyId}
+         AND "archivedAt" IS NULL
+       ORDER BY CASE
+                  WHEN "minimumStock" IS NOT NULL
+                   AND "quantity" <= "minimumStock" THEN 0
+                  ELSE 1
+                END,
+                "name" ASC,
+                "id" ASC
+       LIMIT ${DASHBOARD_STOCK_OVERVIEW_LIMIT}
+    `,
+  ]);
+
+  const selectedStockProducts =
+    stockOverviewProductIds.length === 0
+      ? []
+      : await db.stockProduct.findMany({
+          where: {
+            propertyId,
+            archivedAt: null,
+            id: { in: stockOverviewProductIds.map((product) => product.id) },
+          },
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            quantity: true,
+            unit: true,
+            minimumStock: true,
+            storageLocation: true,
+            note: true,
+            supplier: true,
+            unitValue: true,
+            expirationDate: true,
+            batchNumber: true,
+            purchaseDate: true,
+            technicalNote: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+  const stockProductById = new Map(
+    selectedStockProducts.map((product) => [product.id, product]),
+  );
+  const orderedStockProducts = stockOverviewProductIds
+    .map((product) => stockProductById.get(product.id))
+    .filter(
+      (product): product is (typeof selectedStockProducts)[number] =>
+        product !== undefined,
+    );
+
+  return {
+    counts: {
+      activeAreas,
+      farmRecords,
+      activeProducts,
+      lowStockProducts: Number(lowStockRows[0]?.count ?? 0),
+    },
+    recentFarmRecords: recentFarmRecords.map(toFarmRecordDto),
+    stockOverviewProducts: orderedStockProducts.map(toStockProductDto),
+  };
+}
+
 /**
  * Única abertura para os testes PostgreSQL adversariais. Em qualquer runtime
  * normal, as queries tenant-scoped só podem ser alcançadas pelos wrappers que
@@ -436,6 +579,7 @@ export function getRuralQueryIntegrationHarness() {
     listFarmRecordsByPropertyId,
     listStockMovementsByPropertyId,
     listAuditLogsByPropertyId,
+    getDashboardSummaryByPropertyId,
   });
 }
 
@@ -470,4 +614,9 @@ export async function listCurrentPropertyAuditLogs(
 ): Promise<CursorPage<AuditLogDto>> {
   const propertyId = await requireCurrentProperty(["VIEW_AUDIT"]);
   return listAuditLogsByPropertyId(propertyId, page);
+}
+
+export async function getCurrentPropertyDashboardSummary(): Promise<RuralDashboardSummaryDto> {
+  const propertyId = await requireCurrentProperty(["READ_PROPERTY"]);
+  return getDashboardSummaryByPropertyId(propertyId);
 }

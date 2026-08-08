@@ -19,10 +19,7 @@ export default async function ActivePropertyLayout({
 
   return (
     <PropertyAccessProvider access={access}>
-      <AgroAppProvider
-        key={context.property.id}
-        activePropertyId={context.property.id}
-      >
+      <AgroAppProvider key={context.property.id}>
         <AppShell>{children}</AppShell>
       </AgroAppProvider>
     </PropertyAccessProvider>
