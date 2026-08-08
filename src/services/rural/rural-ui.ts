@@ -6,6 +6,15 @@ import {
   StockMovementType,
 } from "@/generated/prisma/enums";
 import { hasCapability } from "@/services/autorizacao/property-role-policy";
+import {
+  fitsRuralDecimalStorage,
+  tryNormalizeCanonicalRuralDecimal,
+  tryNormalizeRuralDecimal,
+} from "@/services/rural/rural-decimal";
+import type {
+  AreaDto,
+  StockProductDto,
+} from "@/services/rural/rural-dtos";
 
 export const AREA_TYPE_OPTIONS = [
   { label: "Lavoura", value: AreaType.FIELD },
@@ -197,9 +206,12 @@ export function getRuralUiPermissions(role: PropertyRole) {
   return {
     canRead: hasCapability(role, "READ_PROPERTY"),
     canCreateArea: hasCapability(role, "CREATE_AREA"),
+    canEditArea: hasCapability(role, "EDIT_AREA"),
     canCreateProduct: hasCapability(role, "CREATE_PRODUCT"),
+    canEditProduct: hasCapability(role, "EDIT_PRODUCT"),
     canCreateRecord: hasCapability(role, "CREATE_RECORD"),
     canMoveStock: hasCapability(role, "MOVE_STOCK"),
+    canAdjustStock: hasCapability(role, "ADJUST_STOCK"),
   } as const;
 }
 
@@ -246,6 +258,51 @@ export function buildCreateAreaInput(
   };
 }
 
+export type AreaEditFormValues = AreaFormValues;
+
+export function getAreaEditFormValues(area: AreaDto): AreaEditFormValues {
+  return {
+    name: area.name,
+    typeLabel: getAreaTypeLabel(area.type),
+    size: area.size === null ? "" : formatRuralDecimalPtBr(area.size),
+    sizeUnit: area.sizeUnit ?? "",
+    note: area.note ?? "",
+    currentCrop: area.currentCrop ?? "",
+    harvest: area.harvest ?? "",
+    soilType: area.soilType ?? "",
+    irrigation: area.irrigation ?? "",
+    estimatedProductivity:
+      area.estimatedProductivity === null
+        ? ""
+        : formatRuralDecimalPtBr(area.estimatedProductivity),
+    productivityUnit: area.productivityUnit ?? "",
+  };
+}
+
+export function buildUpdateAreaInput(
+  areaId: string,
+  values: AreaEditFormValues,
+) {
+  const estimatedProductivity = optionalText(values.estimatedProductivity);
+
+  return {
+    areaId,
+    name: values.name.trim(),
+    type: parseAreaTypeLabel(values.typeLabel),
+    size: optionalText(values.size),
+    sizeUnit: optionalText(values.sizeUnit),
+    note: optionalText(values.note),
+    currentCrop: optionalText(values.currentCrop),
+    harvest: optionalText(values.harvest),
+    soilType: optionalText(values.soilType),
+    irrigation: optionalText(values.irrigation),
+    estimatedProductivity,
+    productivityUnit: estimatedProductivity
+      ? optionalText(values.productivityUnit)
+      : null,
+  };
+}
+
 export type StockProductFormValues = {
   name: string;
   categoryLabel: ProductCategoryLabel;
@@ -283,6 +340,229 @@ export function buildCreateStockProductInput(
     purchaseDate: isComplete ? optionalText(values.purchaseDate) : null,
     technicalNote: isComplete ? optionalText(values.technicalNote) : null,
   };
+}
+
+export type StockProductEditFormValues = {
+  name: string;
+  categoryLabel: ProductCategoryLabel;
+  unit: string;
+  minimumStock: string;
+  storageLocation: string;
+  note: string;
+  supplier: string;
+  unitValue: string;
+  expirationDate: string;
+  batchNumber: string;
+  purchaseDate: string;
+  technicalNote: string;
+};
+
+export function getStockProductEditFormValues(
+  product: StockProductDto,
+): StockProductEditFormValues {
+  return {
+    name: product.name,
+    categoryLabel: getProductCategoryLabel(product.category),
+    unit: product.unit,
+    minimumStock:
+      product.minimumStock === null
+        ? ""
+        : formatRuralDecimalPtBr(product.minimumStock),
+    storageLocation: product.storageLocation ?? "",
+    note: product.note ?? "",
+    supplier: product.supplier ?? "",
+    unitValue:
+      product.unitValue === null
+        ? ""
+        : formatRuralDecimalPtBr(product.unitValue),
+    expirationDate: product.expirationDate ?? "",
+    batchNumber: product.batchNumber ?? "",
+    purchaseDate: product.purchaseDate ?? "",
+    technicalNote: product.technicalNote ?? "",
+  };
+}
+
+export function buildUpdateStockProductInput(
+  productId: string,
+  values: StockProductEditFormValues,
+) {
+  return {
+    productId,
+    name: values.name.trim(),
+    category: parseProductCategoryLabel(values.categoryLabel),
+    unit: values.unit.trim(),
+    minimumStock: optionalText(values.minimumStock),
+    storageLocation: optionalText(values.storageLocation),
+    note: optionalText(values.note),
+    supplier: optionalText(values.supplier),
+    unitValue: optionalText(values.unitValue),
+    expirationDate: optionalText(values.expirationDate),
+    batchNumber: optionalText(values.batchNumber),
+    purchaseDate: optionalText(values.purchaseDate),
+    technicalNote: optionalText(values.technicalNote),
+  };
+}
+
+export type StockAdjustmentFormValues = {
+  targetQuantity: string;
+  reason: string;
+};
+
+export function buildAdjustStockInput(
+  productId: string,
+  values: StockAdjustmentFormValues,
+) {
+  return {
+    productId,
+    targetQuantity: values.targetQuantity.trim(),
+    reason: values.reason.trim(),
+  };
+}
+
+/**
+ * O preview reutiliza o parser da fronteira WEB; o backend continua sendo a
+ * autoridade da validação e recalcula a diferença dentro da transação.
+ */
+function normalizePreviewDecimal(value: string): string | null {
+  const result = tryNormalizeRuralDecimal(value);
+  return result.ok ? result.value : null;
+}
+
+function normalizeCanonicalPreviewDecimal(value: string): string | null {
+  const result = tryNormalizeCanonicalRuralDecimal(value);
+  return result.ok ? result.value : null;
+}
+
+function compareDigitStrings(left: string, right: string) {
+  const a = left.replace(/^0+(?=\d)/, "");
+  const b = right.replace(/^0+(?=\d)/, "");
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1;
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
+}
+
+function addDigitStrings(left: string, right: string) {
+  let leftIndex = left.length - 1;
+  let rightIndex = right.length - 1;
+  let carry = 0;
+  let result = "";
+
+  while (leftIndex >= 0 || rightIndex >= 0 || carry > 0) {
+    const leftDigit =
+      leftIndex >= 0 ? left.charCodeAt(leftIndex) - "0".charCodeAt(0) : 0;
+    const rightDigit =
+      rightIndex >= 0 ? right.charCodeAt(rightIndex) - "0".charCodeAt(0) : 0;
+    const sum = leftDigit + rightDigit + carry;
+    result = String.fromCharCode("0".charCodeAt(0) + (sum % 10)) + result;
+    carry = Math.floor(sum / 10);
+    leftIndex -= 1;
+    rightIndex -= 1;
+  }
+
+  return result.replace(/^0+(?=\d)/, "");
+}
+
+/** `left` precisa ser maior ou igual a `right`. */
+function subtractDigitStrings(left: string, right: string) {
+  let leftIndex = left.length - 1;
+  let rightIndex = right.length - 1;
+  let borrow = 0;
+  let result = "";
+
+  while (leftIndex >= 0) {
+    let digit = left.charCodeAt(leftIndex) - "0".charCodeAt(0) - borrow;
+    const subtrahend =
+      rightIndex >= 0 ? right.charCodeAt(rightIndex) - "0".charCodeAt(0) : 0;
+    if (digit < subtrahend) {
+      digit += 10;
+      borrow = 1;
+    } else {
+      borrow = 0;
+    }
+    result =
+      String.fromCharCode("0".charCodeAt(0) + digit - subtrahend) + result;
+    leftIndex -= 1;
+    rightIndex -= 1;
+  }
+
+  return result.replace(/^0+(?=\d)/, "");
+}
+
+function decimalMagnitude(value: string, scale: number) {
+  const unsigned = value.startsWith("-") ? value.slice(1) : value;
+  const [integer, fraction = ""] = unsigned.split(".");
+  return `${integer}${fraction.padEnd(scale, "0")}`.replace(
+    /^0+(?=\d)/,
+    "",
+  );
+}
+
+function fixedDigitsToCanonical(
+  magnitude: string,
+  scale: number,
+  negative: boolean,
+) {
+  const digits = magnitude.replace(/^0+(?=\d)/, "");
+  if (/^0+$/.test(digits)) return "0";
+
+  const sign = negative ? "-" : "";
+  if (scale === 0) return `${sign}${digits}`;
+
+  const padded = digits.padStart(scale + 1, "0");
+  const integer = padded.slice(0, -scale).replace(/^0+(?=\d)/, "") || "0";
+  const fraction = padded.slice(-scale).replace(/0+$/, "");
+  return `${sign}${integer}${fraction ? `.${fraction}` : ""}`;
+}
+
+/**
+ * Calcula `targetQuantity - currentQuantity` sem Number, float ou Prisma.
+ * O retorno canônico serve somente para preview; nunca deve ser enviado como
+ * autoridade da diferença ao servidor.
+ */
+export function getStockAdjustmentDifference(
+  currentQuantity: string,
+  targetQuantity: string,
+): string | null {
+  const current = normalizeCanonicalPreviewDecimal(currentQuantity);
+  const target = normalizePreviewDecimal(targetQuantity);
+  if (current === null || target === null) return null;
+  if (
+    !fitsRuralDecimalStorage(current, 18, 4) ||
+    !fitsRuralDecimalStorage(target, 18, 4)
+  ) {
+    return null;
+  }
+
+  const currentFraction = current.replace(/^-/, "").split(".")[1] ?? "";
+  const targetFraction = target.replace(/^-/, "").split(".")[1] ?? "";
+  const scale = Math.max(currentFraction.length, targetFraction.length);
+  const currentMagnitude = decimalMagnitude(current, scale);
+  const targetMagnitude = decimalMagnitude(target, scale);
+  const currentNegative = current.startsWith("-");
+  const targetNegative = target.startsWith("-");
+
+  let magnitude: string;
+  let negative: boolean;
+  if (currentNegative !== targetNegative) {
+    magnitude = addDigitStrings(currentMagnitude, targetMagnitude);
+    negative = targetNegative;
+  } else if (!targetNegative) {
+    const comparison = compareDigitStrings(targetMagnitude, currentMagnitude);
+    magnitude =
+      comparison >= 0
+        ? subtractDigitStrings(targetMagnitude, currentMagnitude)
+        : subtractDigitStrings(currentMagnitude, targetMagnitude);
+    negative = comparison < 0;
+  } else {
+    const comparison = compareDigitStrings(currentMagnitude, targetMagnitude);
+    magnitude =
+      comparison >= 0
+        ? subtractDigitStrings(currentMagnitude, targetMagnitude)
+        : subtractDigitStrings(targetMagnitude, currentMagnitude);
+    negative = comparison < 0;
+  }
+
+  return fixedDigitsToCanonical(magnitude, scale, negative);
 }
 
 export type FarmRecordFormValues = {

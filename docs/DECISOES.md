@@ -927,6 +927,32 @@ produtos ou saldos reais de uma Property vazia.
 
 **Consequência:** o resumo usa contagens próprias tenant-scoped, sem chamar o
 tamanho da primeira página de total. Banco vazio mostra zeros e estados vazios
-honestos. A 3B passou pela validação técnica com 142/142 testes e permanece em
-revisão humana, enquanto a 3C continua pendente; a Etapa 3 inteira não é
-declarada concluída.
+honestos. A 3B passou pela validação técnica com 142/142 testes e está concluída
+no SHA `d99af2d563a0f3eb2f7dc1599404cf0565d3384b`. A 3B.1 está em
+revisão e a 3C continua pendente; a Etapa 3 inteira não é declarada concluída.
+
+## 60. Edição cadastral não é ajuste de saldo
+
+**Decisão:** `updateStockProduct` edita somente os metadados do produto. Seu
+input público não contém `quantity`; saldo atual aparece apenas como leitura na
+interface.
+
+**Por quê:** uma edição comum não explica por que o estoque mudou e permitiria
+apagar a trilha operacional já preservada por `StockMovement`.
+
+**Consequência:** toda mudança de quantidade usa `ADJUSTMENT`, com saldo alvo e
+motivo. O servidor relê o saldo, calcula `quantityChange`, atualiza o produto e
+grava movimento e auditoria na mesma transação.
+
+## 61. Edição usa capabilities próprias e preserva tenancy
+
+**Decisão:** edição de área exige `EDIT_AREA`; edição de produto exige
+`EDIT_PRODUCT`; ajuste continua exigindo `ADJUST_STOCK`. OWNER e MANAGER têm as
+três capabilities, enquanto EMPLOYEE e VIEWER não as possuem.
+
+**Por quê:** criar e editar são autoridades diferentes, e reaproveitar
+silenciosamente uma capability de criação tornaria a política menos explícita.
+
+**Consequência:** Actions derivam Property, ator e origem `WEB`; os IDs do
+navegador são apenas candidatos. Services revalidam capability, Property ativa,
+escopo tenant e entidade não arquivada antes de alterar qualquer dado.

@@ -144,6 +144,7 @@ async function main() {
       "tests/integration/stage3a-domain.integration.test.ts",
       "tests/integration/stage3a-queries.integration.test.ts",
       "tests/integration/stage3b-dashboard.integration.test.ts",
+      "tests/integration/stage3b1-editing.integration.test.ts",
     ],
     domainTestEnvironment,
   );

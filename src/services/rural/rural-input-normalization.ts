@@ -1,5 +1,7 @@
 import "server-only";
 
+import { tryNormalizeRuralDecimal } from "./rural-decimal";
+
 export type RuralInputErrorCode =
   | "EMPTY_VALUE"
   | "INVALID_DECIMAL"
@@ -17,11 +19,6 @@ export class RuralInputError extends Error {
   }
 }
 
-const INTEGER = /^[+-]?\d+$/;
-const COMMA_DECIMAL = /^[+-]?\d+,\d+$/;
-const CANONICAL_DECIMAL = /^[+-]?\d+\.\d+$/;
-const BRAZILIAN_DECIMAL = /^[+-]?\d{1,3}(?:\.\d{3})+,\d+$/;
-const BRAZILIAN_INTEGER = /^[+-]?\d{1,3}(?:\.\d{3})+$/;
 const DATABASE_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ZONED_DATE_TIME =
   /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/;
@@ -43,53 +40,28 @@ function requiredString(value: unknown, kind: "decimal" | "date") {
   return normalized;
 }
 
-function canonicalizeDecimal(value: string) {
-  const negative = value.startsWith("-");
-  const unsigned = value.replace(/^[+-]/, "");
-  const [integerPart, fractionPart] = unsigned.split(".");
-  const integer = integerPart.replace(/^0+(?=\d)/, "") || "0";
-  const fraction = fractionPart?.replace(/0+$/, "") ?? "";
-  const canonical = fraction ? `${integer}.${fraction}` : integer;
-  return negative && canonical !== "0" ? `-${canonical}` : canonical;
-}
-
 /**
  * Aceita decimal canônico e formatos brasileiros inequívocos. Um único ponto
  * com exatamente três casas (por exemplo, 1.234) é recusado porque pode
  * significar tanto 1,234 quanto 1234.
  */
 export function normalizeRuralDecimal(value: unknown): string {
-  const input = requiredString(value, "decimal");
-  const dotCount = (input.match(/\./g) ?? []).length;
+  const result = tryNormalizeRuralDecimal(value);
+  if (result.ok) return result.value;
 
-  let canonicalCandidate: string | null = null;
-
-  if (INTEGER.test(input)) {
-    canonicalCandidate = input;
-  } else if (BRAZILIAN_DECIMAL.test(input)) {
-    canonicalCandidate = input.replaceAll(".", "").replace(",", ".");
-  } else if (COMMA_DECIMAL.test(input)) {
-    canonicalCandidate = input.replace(",", ".");
-  } else if (BRAZILIAN_INTEGER.test(input)) {
-    if (dotCount === 1) {
-      throw new RuralInputError(
-        "AMBIGUOUS_DECIMAL",
-        "O número é ambíguo. Use vírgula para decimais ou informe os milhares sem separador.",
-      );
-    }
-    canonicalCandidate = input.replaceAll(".", "");
-  } else if (CANONICAL_DECIMAL.test(input)) {
-    canonicalCandidate = input;
+  if (result.reason === "EMPTY_VALUE") {
+    throw new RuralInputError("EMPTY_VALUE", "O valor não pode ficar vazio.");
   }
-
-  if (canonicalCandidate === null) {
+  if (result.reason === "AMBIGUOUS_DECIMAL") {
     throw new RuralInputError(
-      "INVALID_DECIMAL",
-      "Informe um número válido em formato brasileiro ou decimal canônico.",
+      "AMBIGUOUS_DECIMAL",
+      "O número é ambíguo. Use vírgula para decimais ou informe os milhares sem separador.",
     );
   }
-
-  return canonicalizeDecimal(canonicalCandidate);
+  throw new RuralInputError(
+    "INVALID_DECIMAL",
+    "Informe um número válido em formato brasileiro ou decimal canônico.",
+  );
 }
 
 export function normalizeOptionalRuralDecimal(value: unknown): string | null {

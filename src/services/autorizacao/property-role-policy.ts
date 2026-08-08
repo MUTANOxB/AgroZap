@@ -3,7 +3,9 @@ import { PropertyRole } from "@/generated/prisma/enums";
 export const CAPABILITIES = [
   "READ_PROPERTY",
   "CREATE_AREA",
+  "EDIT_AREA",
   "CREATE_PRODUCT",
+  "EDIT_PRODUCT",
   "CREATE_RECORD",
   "MOVE_STOCK",
   "MANAGE_TEAM",

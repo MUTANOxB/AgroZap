@@ -499,7 +499,7 @@ test("produto arquivado bloqueia nova ação, mas permite reversão histórica",
       amount: "1",
       createdByUserId: scenario.users[0].id,
     }),
-    "PRODUCT_NOT_FOUND",
+    "PRODUCT_ARCHIVED",
   );
   const reversal = await reverseStockMovement({
     propertyId: scenario.property.id,

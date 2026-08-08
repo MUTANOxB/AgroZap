@@ -17,6 +17,7 @@ import {
   createFarmRecordInTransaction,
   type CreateFarmRecordCommand,
 } from "@/services/registros/farm-record.service";
+import { fitsRuralDecimalStorage } from "@/services/rural/rural-decimal";
 import { findUserIdsWithoutActivePropertyMembership } from "@/services/usuarios/property-membership";
 import { StockDomainError } from "./errors";
 import {
@@ -50,6 +51,15 @@ export type RegisterStockMovementCommand = MovementContext &
         reason: string;
       }
   );
+
+export type AdjustStockCommand = {
+  propertyId: string;
+  productId: string;
+  targetQuantity: string;
+  reason: string;
+  actorUserId: string | null;
+  source?: RecordSource;
+};
 
 export type ReverseStockMovementCommand = {
   propertyId: string;
@@ -93,8 +103,39 @@ function errorCode(error: unknown) {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
+function containsTransactionConflict(error: unknown) {
+  const candidates: unknown[] = [error];
+  const visited = new Set<object>();
+
+  while (candidates.length > 0) {
+    const candidate = candidates.shift();
+    if (typeof candidate !== "object" || candidate === null) continue;
+    if (visited.has(candidate)) continue;
+    visited.add(candidate);
+
+    const record = candidate as Record<string, unknown>;
+    if (
+      record.code === "P2034" ||
+      record.code === "40001" ||
+      record.originalCode === "40001" ||
+      record.kind === "TransactionWriteConflict"
+    ) {
+      return true;
+    }
+
+    for (const key of ["cause", "meta", "driverAdapterError"]) {
+      if (record[key] !== undefined) candidates.push(record[key]);
+    }
+  }
+
+  return false;
+}
+
 function shouldRetry(error: unknown) {
-  return error instanceof RetryStockTransactionError || errorCode(error) === "P2034";
+  return (
+    error instanceof RetryStockTransactionError ||
+    containsTransactionConflict(error)
+  );
 }
 
 async function runStockTransaction<T>(
@@ -125,7 +166,11 @@ async function runStockTransaction<T>(
 
 function parseDecimal(value: string, fieldLabel: string) {
   try {
-    const decimal = new Prisma.Decimal(value);
+    const normalized = value.trim();
+    if (!fitsRuralDecimalStorage(normalized, 18, 4)) {
+      throw new Error("not storable");
+    }
+    const decimal = new Prisma.Decimal(normalized);
     if (!decimal.isFinite()) throw new Error("not finite");
     return decimal;
   } catch {
@@ -147,6 +192,18 @@ function requireWebActor(
     throw new StockDomainError(
       "WEB_ACTOR_REQUIRED",
       "Operações WEB exigem um usuário autenticado.",
+    );
+  }
+}
+
+function requireStorableStockDecimal(
+  value: Prisma.Decimal,
+  fieldLabel: string,
+) {
+  if (!fitsRuralDecimalStorage(value.toString(), 18, 4)) {
+    throw new StockDomainError(
+      "INVALID_QUANTITY",
+      `${fieldLabel} excede o limite de 14 dígitos inteiros e 4 casas decimais.`,
     );
   }
 }
@@ -210,12 +267,17 @@ async function assertNewMovementScope(
     where: {
       id: command.productId,
       propertyId: command.propertyId,
-      archivedAt: null,
     },
   });
 
   if (!product) {
     throw new StockDomainError("PRODUCT_NOT_FOUND", "Produto não encontrado.");
+  }
+  if (product.archivedAt !== null) {
+    throw new StockDomainError(
+      "PRODUCT_ARCHIVED",
+      "Um produto arquivado não pode receber novos movimentos de estoque.",
+    );
   }
 
   await assertActivePropertyUsers(
@@ -367,6 +429,7 @@ function calculateMovement(
   if (balanceAfter.isNegative()) {
     throw new StockDomainError("INSUFFICIENT_STOCK", "Estoque insuficiente.");
   }
+  requireStorableStockDecimal(balanceAfter, "O saldo resultante");
 
   return { quantityChange, balanceAfter };
 }
@@ -397,6 +460,15 @@ async function registerStockMovementInTransaction(
 ): Promise<StockMovement> {
   const source = command.source ?? RecordSource.WEB;
   requireWebActor(source, command.createdByUserId);
+  if (
+    command.type === StockMovementType.ADJUSTMENT &&
+    (typeof command.reason !== "string" || !command.reason.trim())
+  ) {
+    throw new StockDomainError(
+      "INVALID_ADJUSTMENT",
+      "Informe o motivo do ajuste de estoque.",
+    );
+  }
 
   const { product, areaNameSnapshot } = await assertNewMovementScope(
     transaction,
@@ -479,6 +551,28 @@ export function registerStockMovement(
 ) {
   return runStockTransaction((transaction) =>
     registerStockMovementInTransaction(transaction, command, authorization),
+  );
+}
+
+/**
+ * Operação explícita de saldo-alvo. Reutiliza a única semântica ADJUSTMENT do
+ * domínio: o delta é calculado no servidor a partir do saldo transacional.
+ */
+export function adjustStock(
+  command: AdjustStockCommand,
+  authorization?: RuralWebAuthorization,
+) {
+  return registerStockMovement(
+    {
+      propertyId: command.propertyId,
+      productId: command.productId,
+      type: StockMovementType.ADJUSTMENT,
+      newBalance: command.targetQuantity,
+      reason: command.reason,
+      createdByUserId: command.actorUserId,
+      source: command.source,
+    },
+    authorization,
   );
 }
 
@@ -614,6 +708,7 @@ async function reverseStockMovementInTransaction(
   if (balanceAfter.isNegative()) {
     throw new StockDomainError("INSUFFICIENT_STOCK", "Estoque insuficiente.");
   }
+  requireStorableStockDecimal(balanceAfter, "O saldo resultante");
 
   await updateBalanceOptimistically(
     transaction,

@@ -898,6 +898,7 @@ npm run test:stage1.1 # testa as regras locais críticas deste endurecimento
 npm run test:stage2  # testa autenticação e política de papéis
 npm run test:stage3a # testa guard, parsers, DTOs, inputs e erros do boundary
 npm run test:stage3b # testa mappings, adapters, preferência e arquitetura da UI
+npm run test:stage3b1 # testa edição, ajuste e arquitetura da UI/Actions
 npm run test:integration # recria agrozap_test e testa o PostgreSQL real
 npm run test:all     # executa testes unitários e de integração
 npm run typecheck    # verifica os tipos TypeScript
@@ -1550,8 +1551,48 @@ rurais reais.
 
 ### Estado da etapa
 
-A 3B está validada tecnicamente e aguarda revisão humana. A matriz aprovou
-8/8 em Stage 1.1, 17/17 em Stage 2, 19/19 em Stage 3A, 16/16 em Stage 3B e
-82/82 na integração, totalizando 142/142 em `test:all`; schema, geração,
-typecheck, lint e build também passaram. A 3C continua pendente para o legado,
-portanto a Etapa 3 inteira não está concluída.
+A 3B foi aprovada e commitada no SHA
+`d99af2d563a0f3eb2f7dc1599404cf0565d3384b`. A matriz aprovou 8/8 em Stage
+1.1, 17/17 em Stage 2, 19/19 em Stage 3A, 16/16 em Stage 3B e 82/82 na
+integração, totalizando 142/142 em `test:all`; schema, geração, typecheck, lint
+e build também passaram. A 3B.1 está em revisão e a 3C continua pendente para
+o legado, portanto a Etapa 3 inteira não está concluída.
+
+## 26. Mapa da Etapa 3B.1
+
+### Edição de área e produto
+
+- `src/services/talhoes/area.service.ts`: `updateArea` valida Property ativa,
+  escopo, arquivamento, capability e grava before/after auditável;
+- `src/services/estoque/product.service.ts`: `updateStockProduct` altera apenas
+  metadados; `quantity` e `archivedAt` não entram na mutação, enquanto
+  `propertyId` é derivado no servidor e fica fora do payload WEB;
+- `src/services/rural/rural-web-inputs.ts`: allowlists e normalização dos inputs
+  WEB de edição e ajuste, sem aceitar campos de autoridade;
+- `src/services/rural/rural-decimal.ts`: parser decimal compartilhado pelo
+  preview e pelo boundary, sempre mantendo a autoridade final no servidor;
+- `src/app/(authenticated)/(property)/rural-actions.ts`: Actions finas derivam
+  Property, ator e origem `WEB`, aplicam capability e devolvem DTO seguro;
+- `talhoes-client.tsx` e `estoque-client.tsx`: formulários pré-preenchidos,
+  bloqueio de double submit, erro preservando os campos e `router.refresh()` no
+  sucesso.
+
+### Saldo por ADJUSTMENT
+
+O formulário de metadados de produto nunca oferece `quantity` editável. A ação
+de ajuste envia somente o ID candidato, o saldo alvo em string decimal e o
+motivo. `stock-movement.service.ts` relê o saldo dentro da transação
+`Serializable`, calcula a diferença, aplica a comparação otimista e cria
+`StockMovement` + `AuditLog` junto com o novo saldo.
+
+### Testes
+
+`tests/stage3b1/rural-editing.test.ts` cobre capabilities, adapters, allowlists,
+ausência de `quantity` e campos de autoridade e preview decimal.
+`tests/stage3b1/architecture.test.ts` protege a separação Client → Action →
+service e a ausência de Prisma ou regra de saldo no Client. Os cenários reais
+de edição, auditoria, tenancy, arquivamento, concorrência e regressão de
+reversão permanecem na integração PostgreSQL segura.
+
+Resultado da matriz em revisão: Stage 3B.1 12/12, integração 92/92 e
+`test:all` 164/164.

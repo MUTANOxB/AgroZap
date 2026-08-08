@@ -1,16 +1,22 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
-import { createAreaAction } from "@/app/(authenticated)/(property)/rural-actions";
+import { useRef, useState, useTransition, type FormEvent } from "react";
+import {
+  createAreaAction,
+  updateAreaAction,
+} from "@/app/(authenticated)/(property)/rural-actions";
 import { useAgroApp } from "@/context/AgroAppContext";
 import { usePropertyAccess } from "@/context/PropertyAccessContext";
 import type { AreaDto } from "@/services/rural/rural-dtos";
 import {
   AREA_TYPE_OPTIONS,
   buildCreateAreaInput,
+  buildUpdateAreaInput,
   formatRuralDecimalPtBr,
+  getAreaEditFormValues,
   getAreaTypeLabel,
+  type AreaEditFormValues,
   type AreaFormValues,
   type AreaTypeLabel,
 } from "@/services/rural/rural-ui";
@@ -42,17 +48,228 @@ type TalhoesClientProps = {
   areas: AreaDto[];
 };
 
+type FormFeedback = {
+  tone: "error" | "success";
+  message: string;
+};
+
+type AreaEditPanelProps = {
+  values: AreaEditFormValues;
+  feedback: FormFeedback | null;
+  isPending: boolean;
+  onChange: <K extends keyof AreaEditFormValues>(
+    field: K,
+    value: AreaEditFormValues[K],
+  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+};
+
+function AreaEditPanel({
+  values,
+  feedback,
+  isPending,
+  onChange,
+  onSubmit,
+  onCancel,
+}: AreaEditPanelProps) {
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="mt-5 grid gap-4 border-t border-slate-100 pt-5 md:grid-cols-2"
+    >
+      <div className="md:col-span-2">
+        <h4 className="font-bold text-slate-900">Editar área</h4>
+        <p className="mt-1 text-sm text-slate-500">
+          Atualize os dados cadastrais sem alterar a propriedade vinculada.
+        </p>
+      </div>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Nome da área
+        </span>
+        <input
+          required
+          value={values.name}
+          onChange={(event) => onChange("name", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Tipo
+        </span>
+        <select
+          value={values.typeLabel}
+          onChange={(event) =>
+            onChange("typeLabel", event.target.value as AreaTypeLabel)
+          }
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        >
+          {AREA_TYPE_OPTIONS.map(({ label }) => (
+            <option key={label} value={label}>{label}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Tamanho
+        </span>
+        <input
+          inputMode="decimal"
+          value={values.size}
+          onChange={(event) => onChange("size", event.target.value)}
+          placeholder="Ex: 5,5"
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Unidade
+        </span>
+        <input
+          value={values.sizeUnit}
+          onChange={(event) => onChange("sizeUnit", event.target.value)}
+          placeholder="Ex: hectares"
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block md:col-span-2">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Observação
+        </span>
+        <textarea
+          rows={3}
+          value={values.note}
+          onChange={(event) => onChange("note", event.target.value)}
+          className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Cultura atual
+        </span>
+        <input
+          value={values.currentCrop}
+          onChange={(event) => onChange("currentCrop", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Safra
+        </span>
+        <input
+          value={values.harvest}
+          onChange={(event) => onChange("harvest", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Tipo de solo
+        </span>
+        <input
+          value={values.soilType}
+          onChange={(event) => onChange("soilType", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Irrigação
+        </span>
+        <input
+          value={values.irrigation}
+          onChange={(event) => onChange("irrigation", event.target.value)}
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Produtividade estimada
+        </span>
+        <input
+          inputMode="decimal"
+          value={values.estimatedProductivity}
+          onChange={(event) =>
+            onChange("estimatedProductivity", event.target.value)
+          }
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Unidade da produtividade
+        </span>
+        <input
+          value={values.productivityUnit}
+          onChange={(event) =>
+            onChange("productivityUnit", event.target.value)
+          }
+          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+        />
+      </label>
+
+      {feedback && (
+        <p
+          role={feedback.tone === "error" ? "alert" : "status"}
+          className={`text-sm font-semibold md:col-span-2 ${feedback.tone === "error" ? "text-rose-700" : "text-emerald-700"}`}
+        >
+          {feedback.message}
+        </p>
+      )}
+
+      <div className="flex flex-col-reverse gap-3 md:col-span-2 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isPending}
+          className="ag-button-secondary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={isPending}
+          className="ag-button-primary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          {isPending ? "Salvando..." : "Salvar alterações"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function TalhoesClient({ areas }: TalhoesClientProps) {
   const router = useRouter();
   const { isModoCompleto } = useAgroApp();
   const { can } = usePropertyAccess();
   const canCreateArea = can("CREATE_AREA");
+  const canEditArea = can("EDIT_AREA");
   const [formData, setFormData] = useState<AreaFormValues>(emptyForm);
-  const [feedback, setFeedback] = useState<{
-    tone: "error" | "success";
-    message: string;
-  } | null>(null);
+  const [feedback, setFeedback] = useState<FormFeedback | null>(null);
+  const [editingAreaId, setEditingAreaId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] =
+    useState<AreaEditFormValues | null>(null);
+  const [editFeedback, setEditFeedback] = useState<FormFeedback | null>(null);
+  const [pendingOperation, setPendingOperation] = useState<
+    "create" | "edit" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
+  const operationLock = useRef(false);
+  const operationPending = isPending || pendingOperation !== null;
 
   function updateField<K extends keyof AreaFormValues>(
     field: K,
@@ -63,7 +280,9 @@ export function TalhoesClient({ areas }: TalhoesClientProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canCreateArea || isPending) return;
+    if (!canCreateArea || operationLock.current) return;
+    operationLock.current = true;
+    setPendingOperation("create");
     setFeedback(null);
 
     startTransition(async () => {
@@ -84,6 +303,83 @@ export function TalhoesClient({ areas }: TalhoesClientProps) {
           tone: "error",
           message: "Não foi possível concluir a operação.",
         });
+      } finally {
+        operationLock.current = false;
+        setPendingOperation(null);
+      }
+    });
+  }
+
+  function toggleAreaEditor(area: AreaDto) {
+    if (!canEditArea || operationLock.current) return;
+    if (editingAreaId === area.id) {
+      setEditingAreaId(null);
+      setEditFormData(null);
+      setEditFeedback(null);
+      return;
+    }
+
+    setEditingAreaId(area.id);
+    setEditFormData(getAreaEditFormValues(area));
+    setEditFeedback(null);
+  }
+
+  function updateEditField<K extends keyof AreaEditFormValues>(
+    field: K,
+    value: AreaEditFormValues[K],
+  ) {
+    setEditFormData((current) =>
+      current === null ? current : { ...current, [field]: value },
+    );
+  }
+
+  function cancelAreaEdit() {
+    if (operationLock.current) return;
+    setEditingAreaId(null);
+    setEditFormData(null);
+    setEditFeedback(null);
+  }
+
+  function handleAreaEdit(
+    event: FormEvent<HTMLFormElement>,
+    areaId: string,
+  ) {
+    event.preventDefault();
+    if (
+      !canEditArea ||
+      editFormData === null ||
+      editingAreaId !== areaId ||
+      operationLock.current
+    ) {
+      return;
+    }
+
+    operationLock.current = true;
+    setPendingOperation("edit");
+    setEditFeedback(null);
+
+    startTransition(async () => {
+      try {
+        const result = await updateAreaAction(
+          buildUpdateAreaInput(areaId, editFormData),
+        );
+        if (!result.ok) {
+          setEditFeedback({ tone: "error", message: result.error.message });
+          return;
+        }
+
+        setEditingAreaId(null);
+        setEditFormData(null);
+        setEditFeedback(null);
+        router.refresh();
+      } catch {
+        setEditFeedback({
+          tone: "error",
+          message: "Não foi possível concluir a operação.",
+        });
+      } finally {
+        operationLock.current = false;
+        setPendingOperation(null);
       }
     });
   }
@@ -210,8 +506,8 @@ export function TalhoesClient({ areas }: TalhoesClientProps) {
             )}
 
             <div className="flex justify-end md:col-span-2">
-              <button type="submit" disabled={isPending} className="ag-button-primary w-full px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60 sm:w-auto">
-                {isPending ? "Cadastrando..." : "Cadastrar área"}
+              <button type="submit" disabled={operationPending} className="ag-button-primary w-full px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60 sm:w-auto">
+                {pendingOperation === "create" ? "Cadastrando..." : "Cadastrar área"}
               </button>
             </div>
           </form>
@@ -242,8 +538,12 @@ export function TalhoesClient({ areas }: TalhoesClientProps) {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {areas.map((area) => {
               const typeLabel = getAreaTypeLabel(area.type);
+              const isEditing = editingAreaId === area.id;
               return (
-                <article key={area.id} className="ag-card ag-card-interactive p-5">
+                <article
+                  key={area.id}
+                  className={`ag-card ag-card-interactive p-5 ${isEditing ? "md:col-span-2 xl:col-span-3" : ""}`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-800 bg-emerald-950 text-white shadow-sm">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden="true">
@@ -257,6 +557,34 @@ export function TalhoesClient({ areas }: TalhoesClientProps) {
                     {area.size ? `${formatRuralDecimalPtBr(area.size)}${area.sizeUnit ? ` ${area.sizeUnit}` : ""}` : "Tamanho não informado"}
                   </p>
                   <p className="mt-4 min-h-10 text-sm leading-5 text-slate-500">{area.note || "Nenhuma observação cadastrada."}</p>
+
+                  {canEditArea && (
+                    <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        aria-expanded={isEditing}
+                        aria-controls={`area-edit-${area.id}`}
+                        disabled={operationPending}
+                        onClick={() => toggleAreaEditor(area)}
+                        className="ag-button-secondary min-h-10 px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {isEditing ? "Fechar edição" : "Editar"}
+                      </button>
+                    </div>
+                  )}
+
+                  {isEditing && editFormData && (
+                    <div id={`area-edit-${area.id}`}>
+                      <AreaEditPanel
+                        values={editFormData}
+                        feedback={editFeedback}
+                        isPending={operationPending}
+                        onChange={updateEditField}
+                        onSubmit={(event) => handleAreaEdit(event, area.id)}
+                        onCancel={cancelAreaEdit}
+                      />
+                    </div>
+                  )}
                 </article>
               );
             })}

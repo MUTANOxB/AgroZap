@@ -259,7 +259,7 @@ unitários. `db:validate`, `db:generate`, typecheck, lint e build também passar
 
 ## ETAPA 3 — Boundary rural, integração da UI e transição do legado
 
-**Status: iniciada — Etapa 3A concluída; 3B validada/em revisão humana; 3C pendente**
+**Status: iniciada — Etapas 3A e 3B concluídas; 3B.1 em revisão; 3C pendente**
 
 ### ETAPA 3A — Boundary server-side, queries e comandos seguros
 
@@ -300,9 +300,9 @@ passaram.
 
 ### ETAPA 3B — Conectar a interface rural
 
-**Status: validação técnica concluída; aguardando revisão humana**
+**Status: concluída no SHA `d99af2d563a0f3eb2f7dc1599404cf0565d3384b`**
 
-Implementado e em revisão:
+Implementado e aprovado:
 
 - adaptar as páginas de áreas, produtos, anotações, estoque e dashboard aos
   DTOs e actions da 3A;
@@ -330,7 +330,32 @@ A revisão adversarial e a bateria técnica aprovaram `test:stage1.1` 8/8,
 `test:stage2` 17/17, `test:stage3a` 19/19, `test:stage3b` 16/16 e integração
 82/82, totalizando 142/142 em `test:all`. `db:validate`, `db:generate`,
 typecheck, lint e build também passaram. O smoke manual de navegador não foi
-executado neste ambiente e a entrega segue sem commit para revisão humana.
+executado naquele ambiente. A entrega foi aprovada e commitada no SHA
+`d99af2d563a0f3eb2f7dc1599404cf0565d3384b`.
+
+### ETAPA 3B.1 — Edição de cadastros e ajustes auditáveis de estoque
+
+**Status: em revisão**
+
+Escopo desta subetapa:
+
+- editar uma `Area` existente sem permitir mudança de `propertyId`;
+- editar somente os metadados de `StockProduct`, mantendo `quantity` fora do
+  input e do formulário cadastral;
+- alterar saldo exclusivamente por `ADJUSTMENT`, com novo saldo e motivo
+  informados, diferença calculada no servidor e histórico preservado;
+- exigir `EDIT_AREA`, `EDIT_PRODUCT` ou `ADJUST_STOCK`, conforme a operação,
+  para OWNER e MANAGER; EMPLOYEE e VIEWER permanecem sem essas permissões;
+- registrar before/after e campos alterados em `AuditLog`, sem criar auditoria
+  falsa quando uma edição é no-op;
+- preservar transação, concorrência, isolamento por Property, bloqueio de
+  arquivados e o comportamento histórico de reversões;
+- cobrir adapters e contratos de apresentação, inspecionar a arquitetura de
+  Actions/UI na suíte `test:stage3b1` e executar os services na integração
+  PostgreSQL segura.
+
+A bateria da implementação em revisão aprovou Stage 3B.1 12/12, integração
+92/92 e total 164/164 em `test:all`, sem alterar o baseline aprovado da 3B.
 
 ### ETAPA 3C — Legado, cross-session e histórico final
 

@@ -3,8 +3,12 @@
 import { RecordSource, StockMovementType } from "@/generated/prisma/enums";
 import { requirePropertyCapabilities } from "@/services/autorizacao/property-capability-guard";
 import { RURAL_WEB_AUTHORIZATION } from "@/services/autorizacao/rural-web-authorization";
-import { createStockProduct } from "@/services/estoque/product.service";
 import {
+  createStockProduct,
+  updateStockProduct,
+} from "@/services/estoque/product.service";
+import {
+  adjustStock,
   createFarmRecordWithStockMovement,
   registerStockMovement,
   reverseStockMovement,
@@ -28,13 +32,16 @@ import {
 } from "@/services/rural/rural-dtos";
 import {
   prepareCreateAreaWebInput,
+  prepareAdjustStockWebInput,
   prepareCreateFarmRecordWebInput,
   prepareCreateFarmRecordWithStockMovementWebInput,
   prepareCreateStockProductWebInput,
   prepareRegisterStockMovementWebInput,
   prepareReverseStockMovementWebInput,
+  prepareUpdateAreaWebInput,
+  prepareUpdateStockProductWebInput,
 } from "@/services/rural/rural-web-inputs";
-import { createArea } from "@/services/talhoes/area.service";
+import { createArea, updateArea } from "@/services/talhoes/area.service";
 
 export type FarmRecordWithStockMovementDto = {
   farmRecord: FarmRecordDto;
@@ -54,6 +61,29 @@ export async function createAreaAction(
         ...input,
         propertyId: context.property.id,
         createdByUserId: context.user.id,
+        source: RecordSource.WEB,
+      },
+      RURAL_WEB_AUTHORIZATION,
+    );
+    return ruralActionSuccess(toAreaDto(area));
+  } catch (error) {
+    return ruralActionFailure(error);
+  }
+}
+
+export async function updateAreaAction(
+  rawInput: unknown,
+): Promise<RuralActionResult<AreaDto>> {
+  const context = await requireActivePropertyContext();
+
+  try {
+    requirePropertyCapabilities(context.role, ["EDIT_AREA"]);
+    const input = prepareUpdateAreaWebInput(rawInput);
+    const area = await updateArea(
+      {
+        ...input,
+        propertyId: context.property.id,
+        actorUserId: context.user.id,
         source: RecordSource.WEB,
       },
       RURAL_WEB_AUTHORIZATION,
@@ -85,6 +115,52 @@ export async function createStockProductAction(
       RURAL_WEB_AUTHORIZATION,
     );
     return ruralActionSuccess(toStockProductDto(product));
+  } catch (error) {
+    return ruralActionFailure(error);
+  }
+}
+
+export async function updateStockProductAction(
+  rawInput: unknown,
+): Promise<RuralActionResult<StockProductDto>> {
+  const context = await requireActivePropertyContext();
+
+  try {
+    requirePropertyCapabilities(context.role, ["EDIT_PRODUCT"]);
+    const input = prepareUpdateStockProductWebInput(rawInput);
+    const product = await updateStockProduct(
+      {
+        ...input,
+        propertyId: context.property.id,
+        actorUserId: context.user.id,
+        source: RecordSource.WEB,
+      },
+      RURAL_WEB_AUTHORIZATION,
+    );
+    return ruralActionSuccess(toStockProductDto(product));
+  } catch (error) {
+    return ruralActionFailure(error);
+  }
+}
+
+export async function adjustStockAction(
+  rawInput: unknown,
+): Promise<RuralActionResult<StockMovementDto>> {
+  const context = await requireActivePropertyContext();
+
+  try {
+    requirePropertyCapabilities(context.role, ["ADJUST_STOCK"]);
+    const input = prepareAdjustStockWebInput(rawInput);
+    const movement = await adjustStock(
+      {
+        ...input,
+        propertyId: context.property.id,
+        actorUserId: context.user.id,
+        source: RecordSource.WEB,
+      },
+      RURAL_WEB_AUTHORIZATION,
+    );
+    return ruralActionSuccess(toStockMovementDto(movement));
   } catch (error) {
     return ruralActionFailure(error);
   }

@@ -1318,6 +1318,27 @@ Esse conceito é **PLANEJADO**. A entidade não foi criada nesta etapa porque o
 fluxo de validade e confirmação ainda precisa ser definido. A autenticação web
 já existe, mas não define sozinha esses estados.
 
+## Edição cadastral
+
+Edição cadastral altera os dados descritivos de uma entidade já existente sem
+mudar sua identidade tenant. Na 3B.1, uma área pode atualizar nome, tipo,
+medidas e observações; um produto pode atualizar nome, categoria, unidade,
+estoque mínimo e demais metadados.
+
+`propertyId`, `archivedAt` e campos de autoria não vêm do formulário. No caso de
+`StockProduct`, `quantity` também não pertence à edição cadastral.
+
+## Ajuste auditável de estoque
+
+Ajuste auditável é um `StockMovement` do tipo `ADJUSTMENT` que leva o produto a
+um saldo alvo. O navegador pode mostrar uma diferença como preview, mas envia
+o saldo alvo como string e um motivo; o servidor relê o saldo atual e calcula a
+diferença autoritativa.
+
+Exemplo: saldo 128 e alvo 120 produzem `quantityChange = -8`, com
+`balanceBefore = 128` e `balanceAfter = 120`. Movimento, novo saldo e
+`AuditLog` são confirmados juntos, sem editar movimentos anteriores.
+
 ## Resumo dos fluxos e estados
 
 ```text
@@ -1339,5 +1360,6 @@ agrozap-mvp-data* permanece intacto e fora do fluxo normal
 
 Os dois primeiros fluxos server-side e o fluxo rural reutilizam a autorização
 da Etapa 2 e o boundary da 3A. O Context restante não guarda dados rurais. A 3B
-está implementada/em revisão; a 3C tratará o legado, e a Etapa 3 inteira ainda
-não está concluída.
+está concluída no SHA `d99af2d563a0f3eb2f7dc1599404cf0565d3384b`, a 3B.1
+está em revisão e a 3C tratará o legado; a Etapa 3 inteira ainda não está
+concluída.

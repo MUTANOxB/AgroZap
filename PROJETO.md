@@ -75,8 +75,9 @@ Na implementação da Etapa 3B, as telas de áreas, anotações, estoque e o res
 rural do dashboard leem dados da Property ativa no PostgreSQL. Os formulários
 chamam as Server Actions seguras da 3A e, depois de uma gravação bem-sucedida,
 releem o banco. Em Anotações, uma criação feita numa página histórica substitui
-a URL por `/registros`, voltando aos itens mais recentes. A validação técnica
-final aprovou 142/142 testes; a entrega permanece sem commit para revisão humana.
+a URL por `/registros`, voltando aos itens mais recentes. A Etapa 3B foi
+aprovada e commitada no SHA `d99af2d563a0f3eb2f7dc1599404cf0565d3384b`, com
+baseline validado de 142/142 testes.
 
 O `AgroAppContext` deixou de guardar cadastros rurais. Ele mantém somente a
 preferência `modoUso`, salva em `agrozap-settings`. As chaves antigas
@@ -149,7 +150,7 @@ rural. Ela acrescenta:
 - transação atômica para criar um registro junto com uma movimentação;
 - respostas de erro seguras, sem detalhes de Prisma ou PostgreSQL.
 
-### ATUAL/EM REVISÃO HUMANA — interface rural da Etapa 3B
+### ATUAL — interface rural da Etapa 3B
 
 As páginas rurais agora consomem essa camada. A leitura começa em uma Server
 Page, passa por uma query server-only tenant-scoped e entrega somente DTOs
@@ -165,6 +166,19 @@ contagens, registros recentes e produtos da Property ativa no PostgreSQL.
 Somente tarefas, cujo domínio persistente ainda não existe, e a integração
 independente de clima ficam fora desse conjunto rural persistente.
 
+### EM REVISÃO — edição operacional da Etapa 3B.1
+
+A Etapa 3B.1 acrescenta edição auditável de áreas e dos metadados de produtos.
+O formulário cadastral de produto não altera `StockProduct.quantity`: o saldo
+só muda por uma operação explícita `ADJUSTMENT`, que calcula a diferença no
+servidor e preserva movimento, auditoria e atualização do produto na mesma
+transação. `EDIT_AREA` e `EDIT_PRODUCT` ficam restritas a OWNER e MANAGER, assim
+como `ADJUST_STOCK`; EMPLOYEE e VIEWER não recebem essas ações na interface e
+continuam protegidos pelo servidor.
+
+A validação da implementação em revisão aprovou Stage 3B.1 12/12, integração
+92/92 e `test:all` 164/164, além de schema e geração Prisma válidos.
+
 ### PLANEJADO — experiência completa
 
 Estão planejados para etapas futuras:
@@ -179,9 +193,9 @@ Estão planejados para etapas futuras:
 Uma `Organization` poderá futuramente agrupar várias Properties para empresa,
 família, cobrança ou administração central, mas foi deliberadamente adiada.
 PostgreSQL RLS não foi implementado. Também não existe integração com WhatsApp,
-chatbot, IA ou transcrição de áudio. A Etapa 3A está concluída, a implementação
-da 3B passou pela validação técnica e aguarda revisão humana, enquanto a 3C
-continua pendente. Isso não significa que a Etapa 3 inteira esteja concluída.
+chatbot, IA ou transcrição de áudio. As Etapas 3A e 3B estão concluídas, a 3B.1
+está em revisão e a 3C continua pendente. Isso não significa que a Etapa 3
+inteira esteja concluída.
 
 ## Como os dados circulam hoje
 

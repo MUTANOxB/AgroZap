@@ -4,7 +4,30 @@ Este arquivo registra mudanças importantes em linguagem simples. Ele não
 substitui o histórico do Git; seu objetivo é explicar o motivo e o impacto de
 cada etapa para quem está estudando o projeto.
 
-## 08/08/2026 — Interface rural DB-backed (Etapa 3B, validada tecnicamente)
+## 08/08/2026 — Edição cadastral e ajuste auditável (Etapa 3B.1, em revisão)
+
+### Estado da entrega
+
+A Etapa 3B.1 acrescenta edição de `Area` e dos metadados de `StockProduct` sem
+abrir um caminho para sobrescrever o saldo. A quantidade atual fica somente
+para leitura no formulário cadastral; qualquer correção usa um novo
+`StockMovement` do tipo `ADJUSTMENT`, com motivo obrigatório e diferença
+calculada a partir do saldo relido pelo servidor.
+
+As operações continuam no fluxo Client → Server Action → capability → service
+→ transação → PostgreSQL. Edição e ajuste preservam Property e ator derivados
+no servidor, bloqueiam entidades arquivadas e CUIDs de outra Property, gravam
+`AuditLog` útil e mantêm o histórico de movimentos sem reescrita. Nenhuma
+migration ou alteração de schema é esperada nesta subetapa.
+
+As capabilities explícitas `EDIT_AREA` e `EDIT_PRODUCT` acompanham
+`ADJUST_STOCK`: OWNER e MANAGER podem operar; EMPLOYEE e VIEWER permanecem sem
+essas permissões. A suíte `test:stage3b1` cobre allowlists, adapters e
+arquitetura, além da validação PostgreSQL dos services na integração segura.
+Stage 3B.1 passou 12/12; a integração passou 92/92 e `test:all`, 164/164.
+`db:validate` e `db:generate` também passaram sem nova migration.
+
+## 08/08/2026 — Interface rural DB-backed (Etapa 3B, concluída)
 
 ### Estado da entrega
 
@@ -13,8 +36,9 @@ rurais do Dashboard ao PostgreSQL. A mudança reutiliza integralmente o boundary
 seguro da 3A e não cria um segundo caminho de mutação. Nenhuma migration nem
 alteração de schema faz parte desta etapa.
 
-A entrega passou pela bateria técnica e permanece **em revisão humana**, sem
-commit ou push. Foram aprovados Stage 1.1 8/8, Stage 2 17/17, Stage 3A 19/19,
+A entrega passou pela bateria técnica, foi aprovada e commitada no SHA
+`d99af2d563a0f3eb2f7dc1599404cf0565d3384b`. Foram aprovados Stage 1.1 8/8,
+Stage 2 17/17, Stage 3A 19/19,
 Stage 3B 16/16 e integração 82/82, totalizando 142/142 em `test:all`.
 `db:validate`, `db:generate`, typecheck, lint, build e `git diff --check`
 também passaram. O build precisou de rede apenas para obter a fonte Manrope.
@@ -88,9 +112,8 @@ vencimentos podem continuar demonstrativos porque ainda não existe domínio
 persistente de tarefas; o clima continua como integração independente. Esses
 blocos não são apresentados como fonte dos dados rurais persistidos.
 
-A Etapa 3A continua concluída, a 3B está validada tecnicamente/em revisão
-humana e a 3C permanece pendente. Portanto, a Etapa 3 inteira ainda não está
-concluída.
+As Etapas 3A e 3B estão concluídas, a 3B.1 está em revisão e a 3C permanece
+pendente. Portanto, a Etapa 3 inteira ainda não está concluída.
 
 ## 07/08/2026 — Boundary rural server-side (Etapa 3A)
 

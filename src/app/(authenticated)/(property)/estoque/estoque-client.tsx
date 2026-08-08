@@ -1,18 +1,34 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { createStockProductAction } from "@/app/(authenticated)/(property)/rural-actions";
+import {
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import {
+  adjustStockAction,
+  createStockProductAction,
+  updateStockProductAction,
+} from "@/app/(authenticated)/(property)/rural-actions";
 import { useAgroApp } from "@/context/AgroAppContext";
 import { usePropertyAccess } from "@/context/PropertyAccessContext";
 import type { StockProductDto } from "@/services/rural/rural-dtos";
 import {
   PRODUCT_CATEGORY_OPTIONS,
+  buildAdjustStockInput,
   buildCreateStockProductInput,
+  buildUpdateStockProductInput,
   formatRuralDecimalPtBr,
   getProductCategoryLabel,
+  getStockAdjustmentDifference,
+  getStockProductEditFormValues,
   isLowStock,
   type ProductCategoryLabel,
+  type StockAdjustmentFormValues,
+  type StockProductEditFormValues,
   type StockProductFormValues,
 } from "@/services/rural/rural-ui";
 
@@ -80,17 +96,397 @@ type EstoqueClientProps = {
   products: StockProductDto[];
 };
 
+type FormFeedback = {
+  tone: "error" | "success";
+  message: string;
+};
+
+const editInputClass =
+  "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10";
+
+type ProductEditPanelProps = {
+  currentQuantity: string;
+  currentUnit: string;
+  values: StockProductEditFormValues;
+  feedback: FormFeedback | null;
+  isPending: boolean;
+  onChange: <K extends keyof StockProductEditFormValues>(
+    field: K,
+    value: StockProductEditFormValues[K],
+  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+};
+
+function ProductEditPanel({
+  currentQuantity,
+  currentUnit,
+  values,
+  feedback,
+  isPending,
+  onChange,
+  onSubmit,
+  onCancel,
+}: ProductEditPanelProps) {
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="mt-5 grid gap-4 border-t border-slate-100 pt-5 md:grid-cols-2"
+    >
+      <div className="md:col-span-2">
+        <h4 className="font-bold text-slate-900">Editar produto</h4>
+        <p className="mt-1 text-sm text-slate-500">
+          Esta edição altera somente os dados cadastrais do produto.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 md:col-span-2">
+        <span className="block text-xs font-bold uppercase tracking-wide text-emerald-700">
+          Saldo atual — somente leitura
+        </span>
+        <strong className="mt-1 block text-xl text-emerald-950">
+          {formatRuralDecimalPtBr(currentQuantity)} {currentUnit}
+        </strong>
+        <p className="mt-1 text-xs text-emerald-800">
+          Para alterar a quantidade, use a operação auditável “Ajustar estoque”.
+        </p>
+      </div>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Nome do produto
+        </span>
+        <input
+          required
+          value={values.name}
+          onChange={(event) => onChange("name", event.target.value)}
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Categoria
+        </span>
+        <select
+          value={values.categoryLabel}
+          onChange={(event) =>
+            onChange(
+              "categoryLabel",
+              event.target.value as ProductCategoryLabel,
+            )
+          }
+          className={editInputClass}
+        >
+          {PRODUCT_CATEGORY_OPTIONS.map(({ label }) => (
+            <option key={label} value={label}>{label}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Unidade
+        </span>
+        <input
+          required
+          value={values.unit}
+          onChange={(event) => onChange("unit", event.target.value)}
+          placeholder="Ex: kg, litros, sacos"
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Estoque mínimo
+        </span>
+        <input
+          inputMode="decimal"
+          value={values.minimumStock}
+          onChange={(event) => onChange("minimumStock", event.target.value)}
+          placeholder="Ex: 50,5"
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Local de armazenamento
+        </span>
+        <input
+          value={values.storageLocation}
+          onChange={(event) =>
+            onChange("storageLocation", event.target.value)
+          }
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Fornecedor
+        </span>
+        <input
+          value={values.supplier}
+          onChange={(event) => onChange("supplier", event.target.value)}
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Valor unitário (R$)
+        </span>
+        <input
+          inputMode="decimal"
+          value={values.unitValue}
+          onChange={(event) => onChange("unitValue", event.target.value)}
+          placeholder="Ex: 85,50"
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Validade
+        </span>
+        <input
+          type="date"
+          value={values.expirationDate}
+          onChange={(event) => onChange("expirationDate", event.target.value)}
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Número do lote
+        </span>
+        <input
+          value={values.batchNumber}
+          onChange={(event) => onChange("batchNumber", event.target.value)}
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Data de compra
+        </span>
+        <input
+          type="date"
+          value={values.purchaseDate}
+          onChange={(event) => onChange("purchaseDate", event.target.value)}
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block md:col-span-2">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Observação
+        </span>
+        <textarea
+          rows={3}
+          value={values.note}
+          onChange={(event) => onChange("note", event.target.value)}
+          className={`${editInputClass} resize-y`}
+        />
+      </label>
+
+      <label className="block md:col-span-2">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Observação técnica
+        </span>
+        <textarea
+          rows={3}
+          value={values.technicalNote}
+          onChange={(event) => onChange("technicalNote", event.target.value)}
+          className={`${editInputClass} resize-y`}
+        />
+      </label>
+
+      {feedback && (
+        <p
+          role={feedback.tone === "error" ? "alert" : "status"}
+          className={`text-sm font-semibold md:col-span-2 ${feedback.tone === "error" ? "text-rose-700" : "text-emerald-700"}`}
+        >
+          {feedback.message}
+        </p>
+      )}
+
+      <div className="flex flex-col-reverse gap-3 md:col-span-2 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isPending}
+          className="ag-button-secondary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={isPending}
+          className="ag-button-primary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          {isPending ? "Salvando..." : "Salvar produto"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+type StockAdjustmentPanelProps = {
+  currentQuantity: string;
+  unit: string;
+  values: StockAdjustmentFormValues;
+  feedback: FormFeedback | null;
+  isPending: boolean;
+  onChange: <K extends keyof StockAdjustmentFormValues>(
+    field: K,
+    value: StockAdjustmentFormValues[K],
+  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onCancel: () => void;
+};
+
+function StockAdjustmentPanel({
+  currentQuantity,
+  unit,
+  values,
+  feedback,
+  isPending,
+  onChange,
+  onSubmit,
+  onCancel,
+}: StockAdjustmentPanelProps) {
+  const difference = getStockAdjustmentDifference(
+    currentQuantity,
+    values.targetQuantity,
+  );
+  const formattedDifference =
+    difference === null
+      ? null
+      : `${difference.startsWith("-") || difference === "0" ? "" : "+"}${formatRuralDecimalPtBr(difference)}`;
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="mt-5 grid gap-4 border-t border-slate-100 pt-5 md:grid-cols-2"
+    >
+      <div className="md:col-span-2">
+        <h4 className="font-bold text-slate-900">Ajustar estoque</h4>
+        <p className="mt-1 text-sm text-slate-500">
+          O saldo real será relido e a diferença será calculada no servidor.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">
+          Saldo atual
+        </span>
+        <strong className="mt-1 block text-xl text-slate-900">
+          {formatRuralDecimalPtBr(currentQuantity)} {unit}
+        </strong>
+      </div>
+
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <span className="block text-xs font-bold uppercase tracking-wide text-emerald-700">
+          Diferença — somente preview
+        </span>
+        <strong
+          className={`mt-1 block text-xl ${difference?.startsWith("-") ? "text-rose-700" : "text-emerald-800"}`}
+        >
+          {formattedDifference === null
+            ? "Preencha o novo saldo"
+            : `${formattedDifference} ${unit}`}
+        </strong>
+      </div>
+
+      <label className="block md:col-span-2">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Novo saldo
+        </span>
+        <input
+          required
+          inputMode="decimal"
+          value={values.targetQuantity}
+          onChange={(event) => onChange("targetQuantity", event.target.value)}
+          placeholder="Ex: 120"
+          className={editInputClass}
+        />
+      </label>
+
+      <label className="block md:col-span-2">
+        <span className="mb-2 block text-sm font-semibold text-slate-700">
+          Motivo do ajuste
+        </span>
+        <textarea
+          required
+          rows={3}
+          value={values.reason}
+          onChange={(event) => onChange("reason", event.target.value)}
+          placeholder="Ex: Contagem física do depósito"
+          className={`${editInputClass} resize-y`}
+        />
+      </label>
+
+      {feedback && (
+        <p
+          role={feedback.tone === "error" ? "alert" : "status"}
+          className={`text-sm font-semibold md:col-span-2 ${feedback.tone === "error" ? "text-rose-700" : "text-emerald-700"}`}
+        >
+          {feedback.message}
+        </p>
+      )}
+
+      <div className="flex flex-col-reverse gap-3 md:col-span-2 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isPending}
+          className="ag-button-secondary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          disabled={isPending}
+          className="ag-button-primary px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+        >
+          {isPending ? "Ajustando..." : "Confirmar ajuste"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function EstoqueClient({ products }: EstoqueClientProps) {
   const router = useRouter();
   const { isModoCompleto } = useAgroApp();
   const { can } = usePropertyAccess();
   const canCreateProduct = can("CREATE_PRODUCT");
+  const canEditProduct = can("EDIT_PRODUCT");
+  const canAdjustStock = can("ADJUST_STOCK");
   const [formData, setFormData] = useState<StockProductFormValues>(emptyForm);
-  const [feedback, setFeedback] = useState<{
-    tone: "error" | "success";
-    message: string;
-  } | null>(null);
+  const [feedback, setFeedback] = useState<FormFeedback | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] =
+    useState<StockProductEditFormValues | null>(null);
+  const [editFeedback, setEditFeedback] = useState<FormFeedback | null>(null);
+  const [adjustingProductId, setAdjustingProductId] = useState<string | null>(
+    null,
+  );
+  const [adjustmentFormData, setAdjustmentFormData] =
+    useState<StockAdjustmentFormValues | null>(null);
+  const [adjustmentFeedback, setAdjustmentFeedback] =
+    useState<FormFeedback | null>(null);
+  const [pendingOperation, setPendingOperation] = useState<
+    "create" | "edit-product" | "adjust-stock" | null
+  >(null);
   const [isPending, startTransition] = useTransition();
+  const operationLock = useRef(false);
+  const operationPending = isPending || pendingOperation !== null;
 
   function updateField<K extends keyof StockProductFormValues>(
     field: K,
@@ -101,7 +497,9 @@ export function EstoqueClient({ products }: EstoqueClientProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canCreateProduct || isPending) return;
+    if (!canCreateProduct || operationLock.current) return;
+    operationLock.current = true;
+    setPendingOperation("create");
     setFeedback(null);
 
     startTransition(async () => {
@@ -122,6 +520,158 @@ export function EstoqueClient({ products }: EstoqueClientProps) {
           tone: "error",
           message: "Não foi possível concluir a operação.",
         });
+      } finally {
+        operationLock.current = false;
+        setPendingOperation(null);
+      }
+    });
+  }
+
+  function closeOperationalPanels() {
+    setEditingProductId(null);
+    setEditFormData(null);
+    setEditFeedback(null);
+    setAdjustingProductId(null);
+    setAdjustmentFormData(null);
+    setAdjustmentFeedback(null);
+  }
+
+  function toggleProductEditor(product: StockProductDto) {
+    if (!canEditProduct || operationLock.current) return;
+    if (editingProductId === product.id) {
+      closeOperationalPanels();
+      return;
+    }
+
+    setAdjustingProductId(null);
+    setAdjustmentFormData(null);
+    setAdjustmentFeedback(null);
+    setEditingProductId(product.id);
+    setEditFormData(getStockProductEditFormValues(product));
+    setEditFeedback(null);
+  }
+
+  function updateEditField<K extends keyof StockProductEditFormValues>(
+    field: K,
+    value: StockProductEditFormValues[K],
+  ) {
+    setEditFormData((current) =>
+      current === null ? current : { ...current, [field]: value },
+    );
+  }
+
+  function toggleStockAdjustment(product: StockProductDto) {
+    if (!canAdjustStock || operationLock.current) return;
+    if (adjustingProductId === product.id) {
+      closeOperationalPanels();
+      return;
+    }
+
+    setEditingProductId(null);
+    setEditFormData(null);
+    setEditFeedback(null);
+    setAdjustingProductId(product.id);
+    setAdjustmentFormData({ targetQuantity: "", reason: "" });
+    setAdjustmentFeedback(null);
+  }
+
+  function updateAdjustmentField<K extends keyof StockAdjustmentFormValues>(
+    field: K,
+    value: StockAdjustmentFormValues[K],
+  ) {
+    setAdjustmentFormData((current) =>
+      current === null ? current : { ...current, [field]: value },
+    );
+  }
+
+  function cancelOperationalPanel() {
+    if (operationLock.current) return;
+    closeOperationalPanels();
+  }
+
+  function handleProductEdit(
+    event: FormEvent<HTMLFormElement>,
+    productId: string,
+  ) {
+    event.preventDefault();
+    if (
+      !canEditProduct ||
+      editFormData === null ||
+      editingProductId !== productId ||
+      operationLock.current
+    ) {
+      return;
+    }
+
+    operationLock.current = true;
+    setPendingOperation("edit-product");
+    setEditFeedback(null);
+
+    startTransition(async () => {
+      try {
+        const result = await updateStockProductAction(
+          buildUpdateStockProductInput(productId, editFormData),
+        );
+        if (!result.ok) {
+          setEditFeedback({ tone: "error", message: result.error.message });
+          return;
+        }
+
+        closeOperationalPanels();
+        router.refresh();
+      } catch {
+        setEditFeedback({
+          tone: "error",
+          message: "Não foi possível concluir a operação.",
+        });
+      } finally {
+        operationLock.current = false;
+        setPendingOperation(null);
+      }
+    });
+  }
+
+  function handleStockAdjustment(
+    event: FormEvent<HTMLFormElement>,
+    productId: string,
+  ) {
+    event.preventDefault();
+    if (
+      !canAdjustStock ||
+      adjustmentFormData === null ||
+      adjustingProductId !== productId ||
+      operationLock.current
+    ) {
+      return;
+    }
+
+    operationLock.current = true;
+    setPendingOperation("adjust-stock");
+    setAdjustmentFeedback(null);
+
+    startTransition(async () => {
+      try {
+        const result = await adjustStockAction(
+          buildAdjustStockInput(productId, adjustmentFormData),
+        );
+        if (!result.ok) {
+          setAdjustmentFeedback({
+            tone: "error",
+            message: result.error.message,
+          });
+          return;
+        }
+
+        closeOperationalPanels();
+        router.refresh();
+      } catch {
+        setAdjustmentFeedback({
+          tone: "error",
+          message: "Não foi possível concluir a operação.",
+        });
+      } finally {
+        operationLock.current = false;
+        setPendingOperation(null);
       }
     });
   }
@@ -222,7 +772,7 @@ export function EstoqueClient({ products }: EstoqueClientProps) {
 
             {feedback && <p role={feedback.tone === "error" ? "alert" : "status"} className={`text-sm font-semibold md:col-span-2 ${feedback.tone === "error" ? "text-rose-700" : "text-emerald-700"}`}>{feedback.message}</p>}
             <div className="flex justify-end md:col-span-2">
-              <button type="submit" disabled={isPending} className="ag-button-primary w-full px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60 sm:w-auto">{isPending ? "Cadastrando..." : "Cadastrar produto"}</button>
+              <button type="submit" disabled={operationPending} className="ag-button-primary w-full px-5 py-3 text-sm font-bold disabled:cursor-wait disabled:opacity-60 sm:w-auto">{pendingOperation === "create" ? "Cadastrando..." : "Cadastrar produto"}</button>
             </div>
           </form>
         </section>
@@ -246,8 +796,14 @@ export function EstoqueClient({ products }: EstoqueClientProps) {
             {products.map((product) => {
               const lowStock = isLowStock(product);
               const categoryLabel = getProductCategoryLabel(product.category);
+              const isEditing = editingProductId === product.id;
+              const isAdjusting = adjustingProductId === product.id;
+              const isExpanded = isEditing || isAdjusting;
               return (
-                <article key={product.id} className={`ag-card ag-card-interactive p-5 ${lowStock ? "!border-rose-200" : ""}`}>
+                <article
+                  key={product.id}
+                  className={`ag-card ag-card-interactive p-5 ${lowStock ? "!border-rose-200" : ""} ${isExpanded ? "md:col-span-2 xl:col-span-3" : ""}`}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${categoryColors[categoryLabel]}`}>{categoryLabel}</span>
                     {lowStock && <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-700">Estoque baixo</span>}
@@ -259,6 +815,69 @@ export function EstoqueClient({ products }: EstoqueClientProps) {
                     {product.storageLocation && <p><span className="text-slate-400">Onde está guardado:</span> <strong className="font-semibold text-slate-700">{product.storageLocation}</strong></p>}
                     {product.note && <p className="leading-5 text-slate-500">{product.note}</p>}
                   </div>
+
+                  {(canEditProduct || canAdjustStock) && (
+                    <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+                      {canEditProduct && (
+                        <button
+                          type="button"
+                          aria-expanded={isEditing}
+                          aria-controls={`product-edit-${product.id}`}
+                          disabled={operationPending}
+                          onClick={() => toggleProductEditor(product)}
+                          className="ag-button-secondary min-h-10 px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isEditing ? "Fechar edição" : "Editar produto"}
+                        </button>
+                      )}
+                      {canAdjustStock && (
+                        <button
+                          type="button"
+                          aria-expanded={isAdjusting}
+                          aria-controls={`stock-adjustment-${product.id}`}
+                          disabled={operationPending}
+                          onClick={() => toggleStockAdjustment(product)}
+                          className="ag-button-primary min-h-10 px-4 text-sm font-bold disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isAdjusting ? "Fechar ajuste" : "Ajustar estoque"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isEditing && editFormData && (
+                    <div id={`product-edit-${product.id}`}>
+                      <ProductEditPanel
+                        currentQuantity={product.quantity}
+                        currentUnit={product.unit}
+                        values={editFormData}
+                        feedback={editFeedback}
+                        isPending={operationPending}
+                        onChange={updateEditField}
+                        onSubmit={(event) =>
+                          handleProductEdit(event, product.id)
+                        }
+                        onCancel={cancelOperationalPanel}
+                      />
+                    </div>
+                  )}
+
+                  {isAdjusting && adjustmentFormData && (
+                    <div id={`stock-adjustment-${product.id}`}>
+                      <StockAdjustmentPanel
+                        currentQuantity={product.quantity}
+                        unit={product.unit}
+                        values={adjustmentFormData}
+                        feedback={adjustmentFeedback}
+                        isPending={operationPending}
+                        onChange={updateAdjustmentField}
+                        onSubmit={(event) =>
+                          handleStockAdjustment(event, product.id)
+                        }
+                        onCancel={cancelOperationalPanel}
+                      />
+                    </div>
+                  )}
                 </article>
               );
             })}

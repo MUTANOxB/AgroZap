@@ -7,8 +7,12 @@ em Modo Simples ou Modo Completo.
 O projeto usa PostgreSQL e Prisma para autenticação, propriedades, equipe e
 dados rurais. Na implementação da Etapa 3B, Talhões, Estoque, Anotações e os
 dados rurais do Dashboard leem e gravam no banco pelo boundary seguro da 3A.
-A validação técnica final aprovou 142/142 testes; a entrega aguarda revisão
-humana sem commit.
+A Etapa 3B foi aprovada e commitada no SHA
+`d99af2d563a0f3eb2f7dc1599404cf0565d3384b`; a Etapa 3B.1 está em revisão.
+
+Na 3B.1, OWNER e MANAGER podem editar áreas e os metadados de produtos. O saldo
+do produto não faz parte da edição cadastral: ele muda somente por um ajuste
+`ADJUSTMENT` auditável, calculado e confirmado no servidor.
 
 O fluxo rural é `Server Page → query tenant-scoped → DTO → Client Component →
 Server Action → PostgreSQL → nova leitura server-side`. Na primeira página isso
@@ -56,6 +60,7 @@ para elas; o clima continua sendo uma integração independente.
 
 ```bash
 npm run test:stage3b
+npm run test:stage3b1
 npm run test:all
 npm run typecheck
 npm run lint
@@ -65,5 +70,7 @@ npm run build
 Para entender a arquitetura e o estágio de cada recurso, comece por
 `PROJETO.md` e `docs/MAPA_DO_CODIGO.md`.
 
-A matriz final aprovou Stage 1.1 8/8, Stage 2 17/17, Stage 3A 19/19, Stage 3B
-16/16 e integração 82/82, totalizando 142/142 em `test:all`.
+O baseline aprovado da 3B contém Stage 1.1 8/8, Stage 2 17/17, Stage 3A 19/19,
+Stage 3B 16/16 e integração 82/82, totalizando 142/142 em `test:all`. A 3B.1
+acrescenta Stage 3B.1 12/12 e eleva a integração a 92/92, totalizando 164/164
+em `test:all`, sem remover ou enfraquecer os testes aprovados.
